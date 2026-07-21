@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>usage-tracker · Claude kullanım & harcama</title>
+<link rel="stylesheet" href="/styles.css?v=5">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>usage&#8203;<em>tracker</em></h1>
+    <span class="tag">Pane for Linux · FAZ 0+1+2</span>
+  </div>
+  <div class="meta">
+    <span id="updated" class="muted">—</span>
+    <button id="refresh" class="ghost" title="Yenile">⟳</button>
+  </div>
+</header>
+
+<main>
+  <!-- ── GLANCE MODE (FAZ 2.5) ───────────────────────────── -->
+  <div id="glance-content" class="glance-root"></div>
+
+  <!-- ── HARCAMA (FAZ 1) ─────────────────────────────────── -->
+  <section class="card spend">
+    <div class="card-head">
+      <h2>💸 Gerçek Harcama</h2>
+      <span id="price-flag" class="pill"></span>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div class="stat-label">Bugün</div><div class="stat-val" id="s-today">—</div></div>
+      <div class="stat"><div class="stat-label">Dün</div><div class="stat-val muted2" id="s-yday">—</div></div>
+      <div class="stat big"><div class="stat-label">Son 30 gün</div><div class="stat-val gold" id="s-total">—</div></div>
+    </div>
+    <div class="spark-wrap">
+      <div class="spark-head"><span>Günlük harcama (30g)</span><span id="spark-max" class="muted"></span></div>
+      <div class="spark" id="spark"></div>
+    </div>
+    <table class="models">
+      <thead><tr><th>Model</th><th>Kaynak</th><th class="r">Token (out/in/cache)</th><th class="r">$</th></tr></thead>
+      <tbody id="model-rows"></tbody>
+    </table>
+    <p id="spend-note" class="note"></p>
+  </section>
+
+  <!-- ── LİMİTLER (FAZ 0) ────────────────────────────────── -->
+  <section class="card limits">
+    <div class="card-head">
+      <h2>⏱️ Claude Limitleri</h2>
+      <span id="calib-flag" class="pill"></span>
+    </div>
+    <div id="limit-bars"></div>
+    <details class="calib">
+      <summary>Kalibrasyon (yedek) — canlı limit alınamazsa</summary>
+      <p class="note">Normalde limitler <strong>Anthropic'in kendi <code>/api/oauth/usage</code></strong> ucundan canlı+gerçek gelir (🟢 rozeti). Yalnızca o alınamazsa (429 / Claude Code kapalı / token süresi dolmuş) bu manuel çapa devreye girer: <code>/usage</code> çalıştır, yüzdeleri ve reset saatlerini gir.</p>
+      <div class="form-grid">
+        <label>Oturum %<input type="number" id="c-sess-pct" min="0" max="100" step="0.1" placeholder="ör. 62"></label>
+        <label>Oturum reset (saat:dk)<input type="time" id="c-sess-reset"></label>
+        <label>Haftalık (tüm) %<input type="number" id="c-week-pct" min="0" max="100" step="0.1" placeholder="ör. 40"></label>
+        <label>Haftalık reset (gün+saat)<input type="datetime-local" id="c-week-reset"></label>
+        <label>Model adı<input type="text" id="c-model-name" placeholder="opus" maxlength="20"></label>
+        <label>Model %<input type="number" id="c-model-pct" min="0" max="100" step="0.1" placeholder="ör. 55"></label>
+      </div>
+      <div class="form-actions">
+        <button id="calib-save" class="primary">Kalibre et</button>
+        <span id="calib-msg" class="muted"></span>
+      </div>
+    </details>
+  </section>
+
+  <!-- ── ÇOK-SAĞLAYICI (FAZ 2) ───────────────────────────── -->
+  <section class="card providers">
+    <div class="card-head">
+      <h2>🌐 Diğer Sağlayıcılar</h2>
+      <span id="prov-flag" class="pill">—</span>
+    </div>
+    <div id="provider-cards" class="prov-grid"></div>
+    <p class="note">Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.</p>
+  </section>
+</main>
+
+<footer><span class="muted">127.0.0.1:8770 · stdlib-only · kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)</span></footer>
+<script src="/app.js?v=6"></script>
+</body>
+</html>

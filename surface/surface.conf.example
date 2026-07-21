@@ -1,0 +1,10 @@
+# usage-tracker — surface config (copy to surface.conf; install.sh does this for you)
+# Sourced by waybar-usage.sh / usage-widget. Plain KEY=VALUE, no deps.
+
+# usage-tracker server base URL (loopback)
+USAGE_URL="http://127.0.0.1:8770"
+
+# Floating widget (Chromium-family --app window)
+WIDGET_SIZE="360x520"                 # initial WxH — drag/resize afterwards, the browser remembers it
+WIDGET_CLASS="usage-tracker-widget"   # window class (used for the Hyprland float/pin rules)
+# WIDGET_URL="http://127.0.0.1:8770/?w=1"   # override the widget URL if needed

@@ -1,0 +1,14 @@
+[Unit]
+Description=usage-tracker — AI usage/limit/spend server (loopback :8770)
+Documentation=https://github.com/ihsandeniz/usage-tracker
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=@@ROOT@@
+ExecStart=@@PYTHON@@ @@ROOT@@/server.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# usage-tracker floating widget — opens the web panel as a MOVABLE + RESIZABLE app window.
+# Uses a Chromium-family browser in --app mode (borderless), with its own profile so it
+# remembers the size/position you give it. On Hyprland it's floated + pinned automatically
+# (runtime rules, no config edit). Drag with Super+LMB, resize with Super+RMB or the edges.
+#
+#   usage-widget open      show the widget
+#   usage-widget close     close it
+#   usage-widget toggle    show/hide (good for a waybar on-click)
+#   usage-widget status    is it open?
+set -eu
+
+SELF_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+CONF="$SELF_DIR/surface.conf"
+[ -f "$CONF" ] && . "$CONF" || true
+
+BASE="${USAGE_URL:-http://127.0.0.1:8770}"
+CLASS="${WIDGET_CLASS:-usage-tracker-widget}"
+SIZE="${WIDGET_SIZE:-360x520}"                 # WxH initial size (full widget)
+GLANCE_SIZE="${WIDGET_GLANCE_SIZE:-320x160}"   # WxH initial size (glance mode)
+GLANCE="${WIDGET_GLANCE:-0}"                   # set to 1 for glance mode
+URL="${WIDGET_URL:-$BASE/?w=1}"                 # ?w=1 → compact widget layout (can be overridden)
+PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/usage-tracker/widget-profile"
+
+# Auto-select size based on glance mode
+if [ "$GLANCE" = "1" ]; then
+  SIZE="$GLANCE_SIZE"
+  URL="$BASE/?w=2"
+fi
+
+W="${SIZE%x*}"; H="${SIZE#*x}"
+
+pick_browser() {
+  for b in chromium chromium-browser google-chrome-stable google-chrome \
+           brave-browser brave vivaldi-stable microsoft-edge-stable; do
+    command -v "$b" >/dev/null 2>&1 && { echo "$b"; return 0; }
+  done
+  return 1
+}
+
+on_hyprland() { command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; }
+
+# Chromium gives --app windows their own class (chrome-<slug>), ignoring --class, so we match
+# on the page title instead — it starts with "usage-tracker" and nothing else does.
+SEL='.[]|select((.class==$c) or (.title|startswith("usage-tracker")))'
+
+is_open() {
+  on_hyprland || return 1
+  hyprctl clients -j 2>/dev/null | jq -e --arg c "$CLASS" "$SEL" >/dev/null 2>&1
+}
+
+do_close() {
+  on_hyprland || { echo "close: needs Hyprland to target the window; close it manually." >&2; return 0; }
+  hyprctl clients -j 2>/dev/null | jq -r --arg c "$CLASS" "$SEL|.address" \
+    | while read -r a; do [ -n "$a" ] && hyprctl dispatch closewindow "address:$a" >/dev/null; done
+}
+
+# Place the widget once its window appears: float + exact size + top-right + pin.
+# Chrome sets its title AFTER load, so map-time windowrules miss — we act by address instead.
+_place() {
+  on_hyprland || return 0
+  local a="" i=0
+  while [ "$i" -lt 40 ]; do   # poll up to ~8s for the window
+    a="$(hyprctl clients -j 2>/dev/null | jq -r --arg c "$CLASS" "first($SEL)//empty|.address")"
+    [ -n "$a" ] && break
+    sleep 0.2; i=$((i+1))
+  done
+  [ -n "$a" ] || return 0
+  local mon mx my mw
+  mon="$(hyprctl clients -j | jq -r --arg a "$a" '.[]|select(.address==$a).monitor')"
+  mx="$(hyprctl monitors -j | jq -r --argjson m "$mon" '.[]|select(.id==$m).x')"
+  my="$(hyprctl monitors -j | jq -r --argjson m "$mon" '.[]|select(.id==$m).y')"
+  mw="$(hyprctl monitors -j | jq -r --argjson m "$mon" '.[]|select(.id==$m).width')"
+  local x=$(( mx + mw - W - 16 )) y=$(( my + 54 ))
+  hyprctl dispatch setfloating "address:$a" >/dev/null 2>&1 || true
+  hyprctl dispatch resizewindowpixel "exact $W $H,address:$a" >/dev/null 2>&1 || true
+  hyprctl dispatch movewindowpixel "exact $x $y,address:$a"   >/dev/null 2>&1 || true
+  hyprctl dispatch pin "address:$a" >/dev/null 2>&1 || true
+}
+
+do_open() {
+  local br; br="$(pick_browser)" || {
+    echo "No Chromium-family browser found — opening in your default browser instead." >&2
+    xdg-open "$URL" >/dev/null 2>&1 &
+    return 0
+  }
+  mkdir -p "$PROFILE"
+  setsid "$br" --app="$URL" --class="$CLASS" \
+    --user-data-dir="$PROFILE" \
+    --window-size="${W},${H}" \
+    --no-first-run --no-default-browser-check --disable-features=Translate \
+    >/dev/null 2>&1 < /dev/null &
+  disown 2>/dev/null || true
+  _place &                      # position/size in the background so 'open' returns fast
+  disown 2>/dev/null || true
+}
+
+case "${1:-open}" in
+  open)   is_open && echo "widget already open" || do_open ;;
+  close)  do_close ;;
+  toggle) if is_open; then do_close; else do_open; fi ;;
+  status) if is_open; then echo "open"; else echo "closed"; fi ;;
+  *) echo "usage: usage-widget {open|close|toggle|status}" >&2; exit 2 ;;
+esac
