@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>usage-tracker · Claude kullanım & harcama</title>
-<link rel="stylesheet" href="/styles.css?v=5">
+<link rel="stylesheet" href="/styles.css?v=6">
 </head>
 <body>
 <header class="topbar">
@@ -79,9 +79,19 @@
     <div id="provider-cards" class="prov-grid"></div>
     <p class="note">Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.</p>
   </section>
+
+  <!-- ── GÖRÜNÜM AYARLARI (FAZ 4a) ──────────────────────── -->
+  <section class="card view-section">
+    <div class="card-head">
+      <h2>⚙️ Görünüm</h2>
+      <span id="view-save-msg" class="pill muted">—</span>
+    </div>
+    <p class="note">İşaretli sağlayıcıları göster; işaretsiz olanlar panel/waybar/widget'tan gizlenir.</p>
+    <div id="view-providers" class="view-providers-list"></div>
+  </section>
 </main>
 
 <footer><span class="muted">127.0.0.1:8770 · stdlib-only · kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)</span></footer>
-<script src="/app.js?v=6"></script>
+<script src="/app.js?v=7"></script>
 </body>
 </html>

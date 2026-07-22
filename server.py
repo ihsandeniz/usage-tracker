@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from usage import engine   # noqa: E402
+from usage import engine, viewconfig   # noqa: E402
 
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
@@ -93,7 +93,22 @@ class Handler(BaseHTTPRequestHandler):
                              'updated': datetime.now().strftime('%H:%M:%S')}); return
 
         if path in ('/v1/usage', '/v1/usage/'):
-            self._json(200, engine.usage_wire()); return
+            # Tam liste mi istersin (seçim UI için) ya da süzülü (waybar/panel/widget)?
+            wire = engine.usage_wire()
+            # ?all=1 query varsa süzME (tüm sağlayıcılar — config UI için)
+            if parse_qs(parsed.query).get('all', ['0'])[0] == '1':
+                self._json(200, wire); return
+            # Yoksa user config'e göre süz
+            self._json(200, viewconfig.filter_wire(wire)); return
+
+        if path in ('/api/view-config', '/api/view-config/'):
+            # Config + available sağlayıcıları dön (GET only)
+            cfg = viewconfig.get_config()
+            wire = engine.usage_wire()
+            available = [{'id': p.get('id'), 'name': p.get('name')}
+                        for p in (wire.get('providers') or [])
+                        if isinstance(p, dict) and p.get('id')]
+            self._json(200, {'config': cfg, 'available': available}); return
 
         # statik dosya (web/)
         if path == '/':
@@ -128,6 +143,28 @@ class Handler(BaseHTTPRequestHandler):
             req = self._read_json_body()
             ok, err = engine.calibrate_usage(req)
             self._json(400 if not ok else 200, {'ok': ok, 'error': err}); return
+
+        if path in ('/api/view-config', '/api/view-config/'):
+            # Config kaydet
+            ct = self.headers.get('Content-Type', '').lower()
+            if 'application/json' not in ct:
+                self._error(400, 'expected Content-Type: application/json'); return
+            req = self._read_json_body()
+            if not isinstance(req, dict):
+                self._error(400, 'invalid request body'); return
+            hidden = req.get('hidden_providers')
+            if not isinstance(hidden, list):
+                self._error(400, 'hidden_providers must be a list'); return
+            # Tüm elemanlar string mi?
+            if not all(isinstance(x, str) for x in hidden):
+                self._error(400, 'hidden_providers must contain only strings'); return
+            ok = viewconfig.save_config({'hidden_providers': hidden})
+            if ok:
+                self._json(200, {'ok': True})
+            else:
+                self._error(500, 'failed to save configuration')
+            return
+
         self._error(404, 'endpoint not found')
 
 

@@ -99,6 +99,18 @@ function fmtSize(b) {
   if (!b) return '';
   const g = b / 1e9; return g >= 1 ? g.toFixed(1) + 'GB' : (b / 1e6).toFixed(0) + 'MB';
 }
+function fmtCount(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'k';
+  return String(n);
+}
+function fmtResetUnix(sec) {
+  if (!sec) return '—';
+  const d = new Date(sec * 1000);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+}
 function provMiniBar(pct, cls) {
   const w = pct == null ? 0 : Math.min(100, pct);
   return `<div class="track sm"><div class="fill ${cls}" style="width:${w}%"></div></div>`;
@@ -123,13 +135,14 @@ function renderProviders(list) {
     if (c.status === 'error')
       return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || 'erişilemedi')}</div>`);
 
-    if (c.kind === 'spend') {           // OpenRouter — gerçek $
+    if (c.kind === 'spend') {           // OpenRouter/OpenAI — gerçek $ (bazıları sadece bakiye)
       const sp = c.spend || {}, bal = c.balance, lim = c.limit;
-      let body = `<div class="prov-stats">
-        <div><span class="pl">Bugün</span><b>${fmtUsd(sp.today)}</b></div>
-        <div><span class="pl">Bu ay</span><b class="gold">${fmtUsd(sp.month)}</b></div>
-        ${bal ? `<div><span class="pl">Kalan kredi</span><b>${fmtUsd(bal.remaining)}</b></div>` : ''}
-      </div>`;
+      const cells = [];
+      if (sp.today != null) cells.push(`<div><span class="pl">Bugün</span><b>${fmtUsd(sp.today)}</b></div>`);
+      if (sp.month != null) cells.push(`<div><span class="pl">Bu ay</span><b class="gold">${fmtUsd(sp.month)}</b></div>`);
+      if (bal) cells.push(`<div><span class="pl">Kalan kredi</span><b>${fmtUsd(bal.remaining)}</b></div>`);
+      if (!cells.length) cells.push(`<div><span class="pl muted">veri yok</span><b>—</b></div>`);
+      let body = `<div class="prov-stats">${cells.join('')}</div>`;
       if (lim) {
         const cls = lim.pct == null ? 'none' : lim.pct >= 90 ? 'crit' : lim.pct >= 75 ? 'warn' : 'ok';
         body += `<div class="prov-limit"><div class="pl-row"><span>Günlük limit (${esc(lim.reset || '')})</span>
@@ -161,12 +174,29 @@ function renderProviders(list) {
       <div class="prov-models">${(c.models || []).slice(0, 4).map(m =>
         `<span class="chip">${esc(m.name)} <small>${fmtSize(m.size)}</small></span>`).join('') || '<span class="muted">model yok</span>'}</div>`);
     }
+
+    if (c.kind === 'quota') {           // ElevenLabs — karakter kotası ($ yok)
+      const q = c.quota || {};
+      const cls = q.pct == null ? 'none' : q.pct >= 90 ? 'crit' : q.pct >= 75 ? 'warn' : 'ok';
+      const unit = q.unit || 'birim';
+      let body = `<div class="prov-stats">
+        <div><span class="pl">Kullanılan</span><b>${fmtCount(q.used)}</b></div>
+        <div><span class="pl">Kalan</span><b class="gold">${fmtCount(q.remaining)}</b></div>
+      </div>
+      <div class="prov-limit"><div class="pl-row"><span>Aylık ${esc(unit)} (${q.pct == null ? '—' : q.pct + '%'})</span>
+        <span>${fmtCount(q.used)} / ${fmtCount(q.limit)}</span></div>${provMiniBar(q.pct, cls)}</div>`;
+      if (q.reset) body += `<div class="pl-row muted"><span>Sıfırlanma</span><span>${fmtResetUnix(q.reset)}</span></div>`;
+      return provShell(c, body);
+    }
     return provShell(c, '');
   }).join('') || '<div class="muted">Yapılandırılmış başka sağlayıcı yok.</div>';
 }
 function provShell(c, body) {
   const dot = c.status === 'ok' ? 'ok' : c.status === 'offline' ? 'off' : 'err';
-  const badge = c.currency === null ? 'yerel' : c.kind === 'tokens' ? 'abonelik' : (c.tier || '');
+  const badge = c.kind === 'quota' ? (c.tier || 'kota')
+    : c.kind === 'local' ? 'yerel'
+    : c.kind === 'tokens' ? (c.auth === 'yerel-log' ? 'yerel-log' : 'abonelik')
+    : (c.tier || '');
   return `<div class="prov">
     <div class="prov-head"><span class="pdot ${dot}"></span><span class="prov-name">${esc(c.name)}</span>
       ${badge ? `<span class="prov-badge">${esc(badge)}</span>` : ''}</div>
@@ -277,8 +307,75 @@ function renderGlance(spend, usage) {
   $('glance-content').innerHTML = html;
 }
 
+// ── GÖRÜNÜM AYARLARI (FAZ 4a) ─────────────────────────────
+async function loadViewConfig() {
+  try {
+    const data = await getJSON('/api/view-config');
+    const { config, available } = data;
+    const hiddenProviders = config?.hidden_providers || [];
+    renderViewProviders(available || [], hiddenProviders);
+  } catch (e) {
+    console.error('loadViewConfig failed:', e);
+    $('view-providers').innerHTML = '<div class="muted">Yapılandırma yüklenemedi</div>';
+  }
+}
+
+function renderViewProviders(available, hidden) {
+  const list = available.map(prov => {
+    const isHidden = hidden.includes(prov.id);
+    const checked = !isHidden ? 'checked' : '';
+    return `<label class="view-checkbox">
+      <input type="checkbox" data-provider="${esc(prov.id)}" ${checked}>
+      <span>${esc(prov.name)}</span>
+    </label>`;
+  }).join('');
+  $('view-providers').innerHTML = list || '<div class="muted">Sağlayıcı yok</div>';
+
+  // Add event listeners to checkboxes
+  document.querySelectorAll('#view-providers input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', submitViewConfig);
+  });
+}
+
+async function submitViewConfig() {
+  const msg = $('view-save-msg');
+  const checkboxes = document.querySelectorAll('#view-providers input[type="checkbox"]');
+
+  // Collect hidden providers (unchecked)
+  const hiddenProviders = Array.from(checkboxes)
+    .filter(cb => !cb.checked)
+    .map(cb => cb.getAttribute('data-provider'));
+
+  msg.textContent = 'kaydediliyor…';
+  msg.className = 'pill muted';
+
+  try {
+    const r = await getJSON('/api/view-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hidden_providers: hiddenProviders }),
+    });
+    if (r.ok) {
+      msg.textContent = '✓ kaydedildi';
+      msg.className = 'pill good';
+      setTimeout(() => {
+        msg.textContent = '—';
+        msg.className = 'pill muted';
+      }, 2000);
+      refresh();
+    } else {
+      msg.textContent = '✗ ' + (r.error || 'hata');
+      msg.className = 'pill warn';
+    }
+  } catch (e) {
+    msg.textContent = '✗ ' + e.message;
+    msg.className = 'pill warn';
+  }
+}
+
 // ── EVENT LISTENERS & STARTUP ────────────────────────────────
 $('refresh').addEventListener('click', () => refresh().catch(e => console.error('refresh failed:', e)));
 $('calib-save').addEventListener('click', submitCalib);
 refresh();
+loadViewConfig();
 setInterval(() => refresh().catch(e => console.error('refresh failed:', e)), 30000);   // 30sn'de bir tazele

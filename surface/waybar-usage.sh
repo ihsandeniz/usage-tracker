@@ -21,32 +21,69 @@ if [ -z "$json" ]; then
   exit 0
 fi
 
-# NOTE: `(stream) as $x` over an EMPTY stream yields NO output. Guard every optional
-# provider with `([ ... ][0])` (→ single value or null) so a missing provider can't
-# blank the whole module.
+# Generic zenginleştirilmiş tooltip — tüm sağlayıcılar üzerinde döngü
+# Kritik: opsiyonel alan erişiminde //null guard + select(.) kullan → boş stream hiç output vermez
 echo "$json" | jq -c '
   def money(v): if v == null then "—" else "$" + (v*100|round/100|tostring) end;
-  def pctstr(v): if v == null then "—" else ((v*10|round/10)|tostring) + "%" end;
+  def fmt_pct(v):
+    if v == null then "—"
+    elif v >= 90 then "<span color=\"#ff6b6b\">" + ((v*10|round/10)|tostring) + "%</span>"
+    elif v >= 75 then "<span color=\"#ffa500\">" + ((v*10|round/10)|tostring) + "%</span>"
+    else ((v*10|round/10)|tostring) + "%"
+    end;
 
-  (.providers // []) as $p
-  | ([$p[]|select(.id=="claude")][0])     as $c
-  | ([$p[]|select(.id=="openrouter")][0]) as $or
-  | ([$p[]|select(.id=="codex")][0])      as $cx
-  | ($c.limits.session.pct // 0) as $sess
-  | ($c.limits.weekly.pct  // 0) as $week
-  | ([$sess, $week] | max) as $hi
-  | (if $hi >= 90 then "crit" elif $hi >= 75 then "warn" else "ok" end) as $cls
-  | ($c.spend.today // 0) as $ctoday
+  (.providers[] | select(.id == "claude")) as $claude
+  | ($claude.limits.session.pct // 0) as $sess_pct
+  | ($claude.limits.weekly.pct // 0) as $week_pct
+  | ([$sess_pct, $week_pct] | max) as $hi_pct
+  | (if $hi_pct >= 90 then "crit" elif $hi_pct >= 75 then "warn" else "ok" end) as $class
+
+  # Claude line — zengin bilgi
+  | (
+      "<b>Claude</b>  session " + fmt_pct($sess_pct) +
+      " · weekly " + fmt_pct($week_pct) +
+      (if $claude.limits.weeklyModel then " · weekly-model " + fmt_pct($claude.limits.weeklyModel.pct) else "" end) +
+      "\n  today " + money($claude.spend.today) +
+      (if ($claude.spend.yesterday // 0) > 0 then " · yester " + money($claude.spend.yesterday) else "" end) +
+      " · 30d " + money($claude.spend.last30d) +
+      (if ($claude.limits.session.resetInSec // 0) > 0 then
+        "\n  session reset: ~" + ((($claude.limits.session.resetInSec / 60)|floor)|tostring) + " dk"
+      else "" end)
+    ) as $claude_line
+
+  # Other providers — sağlayıcı türüne göre zengin satırlar
+  | (
+      [.providers[] | select(.id != "claude") | (
+        if .kind == "spend" then
+          "\n<b>" + .name + "</b>" +
+          (if (.spend.today // 0) > 0 then "  today " + money(.spend.today) else "" end) +
+          (if (.spend.month // 0) > 0 then " · month " + money(.spend.month) else "" end) +
+          (if .limit then " · limit " + fmt_pct(.limit.pct) +
+            (if (.limit.used and .limit.amount) then " (" + money(.limit.used) + "/" + money(.limit.amount) + ")" else "" end)
+          else "" end) +
+          (if (.balance.remaining // 0) > 0 then " · credit " + money(.balance.remaining) else "" end)
+        elif .kind == "tokens" then
+          (if .status != "offline" then
+            "\n<b>" + .name + "</b>  " + (((.tokens.total // 0)/1000000*10|round/10)|tostring) + "M tok" +
+            (if (.total.usd // 0) > 0 then " ≈ " + money(.total.usd) else "" end) +
+            (if (.today.usd // 0) > 0 then " · today " + money(.today.usd) else "" end)
+          else "" end)
+        elif .kind == "local" then
+          (if (.status // "") != "offline" then
+            "\n<b>" + .name + "</b>  models: " + ((.modelCount // 0) | tostring) +
+            (if ((.running // []) | length) > 0 then " (running: " + ((.running | length) | tostring) + ")" else "" end)
+          else "" end)
+        elif .kind == "quota" then
+          "\n<b>" + .name + "</b>  " + ((.quota.used // 0) | tostring) + "/" + ((.quota.limit // 0) | tostring) + " " + (.quota.unit // "birim") +
+          (if .quota.pct then " · " + fmt_pct(.quota.pct) else "" end)
+        else "" end
+      )] | join("")
+    ) as $others_line
+
   | {
-      text: ("◐ S" + (($sess*10|round/10)|tostring) + "% W" + (($week*10|round/10)|tostring) + "%"),
-      percentage: ($hi|floor),
-      class: $cls,
-      tooltip: (
-        "<b>Claude</b>  session " + pctstr($sess) + " · weekly " + pctstr($week) + "\n" +
-        "  today " + money($ctoday) + " · 30d " + money($c.spend.last30d) +
-        (if $or then "\n<b>OpenRouter</b>  today " + money($or.spend.today) +
-          (if $or.limit then " · limit " + money($or.limit.used) + "/" + money($or.limit.amount) else "" end) else "" end) +
-        (if $cx then "\n<b>Codex</b>  " + ((($cx.tokens.total // 0)/1000000*10|round/10)|tostring) + "M tok ≈ " + money($cx.total.usd) else "" end)
-      )
+      text: ("◐ S" + (($sess_pct*10|round/10)|tostring) + "% W" + (($week_pct*10|round/10)|tostring) + "%"),
+      percentage: ($hi_pct|floor),
+      class: $class,
+      tooltip: $claude_line + $others_line
     }
 '

@@ -296,6 +296,82 @@ def collect(days: int = 30) -> list:
             'running': [],
             'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
         },
+        # ElevenLabs: karakter kotası — GERÇEK ŞEMA (kind='quota')
+        {
+            'id': 'elevenlabs',
+            'name': 'ElevenLabs',
+            'kind': 'quota',
+            'status': 'ok',
+            'currency': None,
+            'tier': 'creator',
+            'quota': {
+                'used': 82345,
+                'limit': 100000,
+                'remaining': 17655,
+                'pct': 82.3,
+                'unit': 'karakter',
+                'reset': int((now + timedelta(days=15)).timestamp()),
+            },
+            'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
+        },
+        # OpenAI: gerçek $ (Costs API) — spend + sparkline
+        {
+            'id': 'openai',
+            'name': 'OpenAI',
+            'kind': 'spend',
+            'status': 'ok',
+            'currency': 'USD',
+            'tier': 'org',
+            'spend': {'today': 2.14, 'month': 47.80},
+            'byDay': demo_byDay[-14:],
+            'note': 'Organizasyon Costs API (demo).',
+            'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
+        },
+        # Together AI: sadece bakiye (balance-only spend kartı)
+        {
+            'id': 'together',
+            'name': 'Together AI',
+            'kind': 'spend',
+            'status': 'ok',
+            'currency': 'USD',
+            'tier': 'paid',
+            'balance': {'remaining': 23.45},
+            'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
+        },
+        # LM Studio: yerel, sunucu açık (local ok)
+        {
+            'id': 'lmstudio',
+            'name': 'LM Studio',
+            'kind': 'local',
+            'status': 'ok',
+            'currency': None,
+            'modelCount': 3,
+            'models': [
+                {'name': 'qwen2.5-coder-7b', 'size': None},
+                {'name': 'llama-3.1-8b', 'size': None},
+                {'name': 'mistral-7b', 'size': None},
+            ],
+            'running': [{'name': 'qwen2.5-coder-7b'}],
+            'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
+        },
+        # Aider: lokal-log token + $ tahmini (tokens kartı)
+        {
+            'id': 'aider',
+            'name': 'Aider',
+            'kind': 'tokens',
+            'status': 'ok',
+            'currency': 'USD',
+            'windowDays': 30,
+            'auth': 'yerel-log',
+            'usdSource': 'estimate',
+            'tokens': {'input': 180000, 'output': 42000, 'total': 222000},
+            'total': {'tokens': 222000, 'usd': 2.34},
+            'today': {'tokens': 12000, 'usd': 0.18},
+            'byModel': [{'short': 'gpt-4o', 'model': 'gpt-4o'}],
+            'byDay': [],
+            'sessions': 14,
+            'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
+        },
     ]
 
 

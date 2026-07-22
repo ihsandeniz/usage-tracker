@@ -60,7 +60,7 @@ X-GNOME-Autostart-enabled=true
 |---|---|---|
 | **Harcama** | Bugün / Dün / 30 gün **$** + model bazlı + 30 günlük grafik | `~/.claude/projects/**/*.jsonl` token'ları × gerçek fiyat |
 | **Limit** | Oturum (5s) + Haftalık kullanım %'si, reset geri sayımı | Anthropic'in kendi `/api/oauth/usage` ucu (gerçek), yoksa yerel tahmin |
-| **Sağlayıcılar** | OpenRouter (gerçek $), Codex (token + $ tahmini), Ollama (yerel) | her sağlayıcının API'si / yerel dosyaları |
+| **Sağlayıcılar** | 15 adaptör: gerçek $ (OpenRouter, OpenAI), kredi/kota (ElevenLabs, HuggingFace, Together, Novita, DeepInfra), yerel (Ollama, LM Studio, Jan), lokal-log token (Codex, Aider, Continue, Cody, Windsurf) | her sağlayıcının API'si / yerel dosyaları |
 
 ### Veri gerçek mi?
 

@@ -11,15 +11,22 @@ Kart 'kind' türleri:
   'spend'  → gerçek $ (currency/spend/balance/limit)     — OpenRouter
   'tokens' → token hacmi + $ tahmini (subscription)       — Codex
   'local'  → yerel/ücretsiz (models/running)              — Ollama
+  'quota'  → karakter/birim kotası + reset ($ yok)        — ElevenLabs
 
 Claude ayrı tutulur (engine.compute_spend/compute_usage) — burada tekrar edilmez.
 Tümü stdlib-only, salt-okunur, kısa timeout + TTL cache (429/ağ nezaketi).
 """
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from . import openrouter, codex, ollama
+from . import (openrouter, openai, together, novita, deepinfra, huggingface,
+               elevenlabs, ollama, lmstudio, jan,
+               codex, aider, continuedev, cody, windsurf)
 
-_ADAPTERS = (openrouter, codex, ollama)
+# Sıra = UI kart sırası: gerçek-$ API → kota → yerel → lokal-log
+_ADAPTERS = (openrouter, openai, together, novita, deepinfra, huggingface,   # spend/quota API
+             elevenlabs,                                                     # quota (karakter)
+             ollama, lmstudio, jan,                                          # yerel/ücretsiz
+             codex, aider, continuedev, cody, windsurf)                      # lokal-log token
 
 
 def _collect_single(mod, days):
@@ -32,8 +39,8 @@ def collect(days: int = 30) -> list:
        diğerlerini düşürmez (izole try/except)."""
     cards = []
 
-    # ThreadPoolExecutor ile 3 adaptörü paralel çalıştır
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    # ThreadPoolExecutor ile tüm adaptörleri paralel çalıştır
+    with ThreadPoolExecutor(max_workers=max(1, len(_ADAPTERS))) as executor:
         # Her adaptör için future oluştur, sırayı tut
         futures = {i: executor.submit(_collect_single, mod, days) for i, mod in enumerate(_ADAPTERS)}
 
