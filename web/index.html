@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>usage-tracker · Claude kullanım & harcama</title>
-<link rel="stylesheet" href="/styles.css?v=6">
+<link rel="stylesheet" href="/styles.css?v=7">
 </head>
 <body>
 <header class="topbar">
@@ -22,6 +22,15 @@
 <main>
   <!-- ── GLANCE MODE (FAZ 2.5) ───────────────────────────── -->
   <div id="glance-content" class="glance-root"></div>
+
+  <!-- ── TEK BAKIŞ ŞERİDİ (FAZ 5c) ───────────────────────── -->
+  <section class="card glance-strip">
+    <div class="card-head">
+      <h2>📊 Tek Bakış</h2>
+      <span id="gstrip-count" class="pill muted">—</span>
+    </div>
+    <div id="gstrip" class="gstrip"></div>
+  </section>
 
   <!-- ── HARCAMA (FAZ 1) ─────────────────────────────────── -->
   <section class="card spend">
@@ -92,6 +101,6 @@
 </main>
 
 <footer><span class="muted">127.0.0.1:8770 · stdlib-only · kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)</span></footer>
-<script src="/app.js?v=7"></script>
+<script src="/app.js?v=8"></script>
 </body>
 </html>

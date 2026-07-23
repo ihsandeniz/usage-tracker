@@ -18,12 +18,12 @@ Tümü stdlib-only, salt-okunur, kısa timeout + TTL cache (429/ağ nezaketi).
 """
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from . import (openrouter, openai, together, novita, deepinfra, huggingface,
+from . import (openrouter, openai, deepseek, together, novita, deepinfra, huggingface,
                elevenlabs, ollama, lmstudio, jan,
                codex, aider, continuedev, cody, windsurf)
 
 # Sıra = UI kart sırası: gerçek-$ API → kota → yerel → lokal-log
-_ADAPTERS = (openrouter, openai, together, novita, deepinfra, huggingface,   # spend/quota API
+_ADAPTERS = (openrouter, openai, deepseek, together, novita, deepinfra, huggingface,  # spend/quota API
              elevenlabs,                                                     # quota (karakter)
              ollama, lmstudio, jan,                                          # yerel/ücretsiz
              codex, aider, continuedev, cody, windsurf)                      # lokal-log token

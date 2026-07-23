@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -78,38 +79,96 @@ def _fetch():
         return None
 
 
+def _bar(pct):
+    p = 0 if pct is None else max(0, min(100, pct))
+    n = int(p // 10)
+    return '█' * n + '░' * (10 - n)
+
+
+def _col(pct):
+    if pct is None:
+        return _COLORS['off']
+    return _COLORS['crit'] if pct >= 90 else _COLORS['warn'] if pct >= 75 else '#22d3ee'
+
+
+def _cbar(pct):
+    return '<span color="%s">%s</span>' % (_col(pct), _bar(pct))
+
+
+def _cpct(v):
+    if v is None:
+        return '<span color="%s">—</span>' % _COLORS['off']
+    return '<span color="%s">%s%%</span>' % (_col(v), round(v * 10) / 10)
+
+
+def _dur(sec):
+    try:
+        s = int(sec)
+    except (TypeError, ValueError):
+        return ''
+    if s <= 0:
+        return ''
+    d, h, m = s // 86400, (s % 86400) // 3600, (s % 3600) // 60
+    if d > 0:
+        return '%dg%ds' % (d, h)
+    if h > 0:
+        return '%ds%ddk' % (h, m)
+    return '%ddk' % m
+
+
+def _rst(sec):
+    t = _dur(sec)
+    return '  <span color="%s">↺%s</span>' % (_COLORS['off'], t) if t else ''
+
+
 def _summarize(data):
-    """(class, headline_pct, tooltip_text) döndür."""
+    """(class, headline_pct, tooltip_html, menu_headline) döndür."""
     if not data:
-        return 'off', None, 'usage-tracker kapalı (%s)' % BASE
+        return 'off', None, 'usage-tracker kapalı (%s)' % BASE, 'usage-tracker · kapalı'
     provs = {p.get('id'): p for p in (data.get('providers') or [])}
     claude = provs.get('claude') or {}
     limits = claude.get('limits') or {}
-    sess = (limits.get('session') or {}).get('pct')
-    week = (limits.get('weekly') or {}).get('pct')
-    hi = max([v for v in (sess, week) if v is not None] or [0])
+    sess = limits.get('session') or {}
+    week = limits.get('weekly') or {}
+    wmodel = limits.get('weeklyModel') or {}
+    sp = sess.get('pct')
+    wp = week.get('pct')
+    hi = max([v for v in (sp, wp) if v is not None] or [0])
     cls = 'crit' if hi >= 90 else 'warn' if hi >= 75 else 'ok'
 
-    lines = ['<b>Claude</b>  oturum %s · haftalık %s' % (_pct(sess), _pct(week))]
+    lines = ['<b>Claude</b>',
+             '  %s oturum %s%s' % (_cbar(sp), _cpct(sp), _rst(sess.get('resetInSec'))),
+             '  %s haftalık %s%s' % (_cbar(wp), _cpct(wp), _rst(week.get('resetInSec')))]
+    if wmodel.get('pct') is not None:
+        lines.append('  %s %s %s' % (_cbar(wmodel.get('pct')),
+                                     wmodel.get('name') or 'model', _cpct(wmodel.get('pct'))))
+    fc = week.get('forecast') or {}
+    if fc.get('willExceed') and fc.get('etaText'):
+        lines.append('  <span color="%s">⚠ %s</span>' % (_COLORS['warn'], fc.get('etaText')))
     spend = claude.get('spend') or {}
+    headline = 'Claude · %d%%' % round(hi)
     if spend.get('today') is not None:
-        lines.append('  bugün $%s · 30g $%s' % (_num(spend.get('today')), _num(spend.get('last30d'))))
+        lines.append('  💰 bugün $%s · 30g $%s' % (_num(spend.get('today')), _num(spend.get('last30d'))))
+        headline = 'Claude %d%% · bugün $%s' % (round(hi), _num(spend.get('today')))
     for p in (data.get('providers') or []):
         if p.get('id') == 'claude':
             continue
         line = _provider_line(p)
         if line:
             lines.append(line)
-    return cls, hi, '\n'.join(lines)
+    return cls, hi, '\n'.join(lines), headline
 
 
 def _provider_line(p):
     kind = p.get('kind')
     name = p.get('name', '?')
     st = p.get('status')
+    if st == 'error':
+        return '<b>%s</b>  <span color="%s">⚠ hata</span>' % (name, _COLORS['crit'])
     if kind == 'spend':
         sp = p.get('spend') or {}
         bal = p.get('balance') or {}
+        lim = p.get('limit') or {}
         bits = []
         if sp.get('today') is not None:
             bits.append('bugün $%s' % _num(sp.get('today')))
@@ -117,13 +176,24 @@ def _provider_line(p):
             bits.append('ay $%s' % _num(sp.get('month')))
         if bal.get('remaining') is not None:
             bits.append('kredi $%s' % _num(bal.get('remaining')))
-        return '<b>%s</b>  %s' % (name, ' · '.join(bits)) if bits else None
+        line = '<b>%s</b>  %s' % (name, ' · '.join(bits)) if bits else '<b>%s</b>' % name
+        if lim.get('pct') is not None:
+            line += '\n  %s limit %s' % (_cbar(lim.get('pct')), _cpct(lim.get('pct')))
+            if lim.get('reset'):
+                line += '  <span color="%s">↺%s</span>' % (_COLORS['off'], lim.get('reset'))
+        return line if (bits or lim.get('pct') is not None) else None
     if kind == 'quota':
         q = p.get('quota') or {}
-        if q.get('limit'):
-            return '<b>%s</b>  %s/%s %s (%s)' % (name, q.get('used'), q.get('limit'),
-                                                 q.get('unit', ''), _pct(q.get('pct')))
-        return None
+        if q.get('pct') is None:
+            return None
+        line = '<b>%s</b>\n  %s %s  <span color="%s">%s/%s %s</span>' % (
+            name, _cbar(q.get('pct')), _cpct(q.get('pct')), _COLORS['off'],
+            q.get('used'), q.get('limit'), q.get('unit', ''))
+        if q.get('reset'):
+            t = _dur(q.get('reset') - time.time())
+            if t:
+                line += '  <span color="%s">↺%s</span>' % (_COLORS['off'], t)
+        return line
     if kind == 'tokens':
         if st == 'offline':
             return None
@@ -133,7 +203,7 @@ def _provider_line(p):
                                          (' ≈ $%s' % _num(usd)) if usd else '')
     if kind == 'local':
         if st == 'offline':
-            return None
+            return '<b>%s</b>  <span color="%s">servis kapalı</span>' % (name, _COLORS['off'])
         return '<b>%s</b>  %s model' % (name, p.get('modelCount', 0))
     return None
 
@@ -190,6 +260,9 @@ class Tray:
         self.icon = QtWidgets.QSystemTrayIcon()
         self.icon.setIcon(_make_icon('off'))
         menu = QtWidgets.QMenu()
+        self.header = menu.addAction('usage-tracker')   # canlı manşet (devre dışı bilgi satırı)
+        self.header.setEnabled(False)
+        menu.addSeparator()
         menu.addAction('Panel Aç', _open_panel)
         menu.addAction('Widget Aç/Kapa', lambda: _run_surface('toggle'))
         menu.addAction('Yenile', self.refresh)
@@ -211,10 +284,11 @@ class Tray:
             _open_panel()
 
     def refresh(self):
-        cls, hi, tip = _summarize(_fetch())
+        cls, hi, tip, headline = _summarize(_fetch())
         self.icon.setIcon(_make_icon(cls))
         # Qt tooltip pango/HTML destekler (rich text)
         self.icon.setToolTip(tip.replace('\n', '<br>'))
+        self.header.setText(headline)
 
 
 def main():

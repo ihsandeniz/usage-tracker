@@ -372,3 +372,36 @@ body.glance .view-section { display:none; }
     transition:none;
   }
 }
+
+/* ── TEK BAKIŞ ŞERİDİ (FAZ 5c) ── */
+.glance-strip{grid-column:1/-1}
+.gstrip{display:flex;gap:10px;flex-wrap:wrap}
+.gchip{
+  flex:1 1 150px;min-width:140px;max-width:220px;
+  display:flex;flex-direction:column;gap:7px;
+  background:var(--bg2);border:1px solid var(--line);border-radius:11px;
+  padding:11px 13px;cursor:pointer;text-align:left;color:var(--txt);
+  font:inherit;transition:border-color .2s,transform .12s,box-shadow .2s;
+}
+.gchip:hover{border-color:var(--line2);transform:translateY(-2px);
+  box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.gchip:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.gchip-top{display:flex;align-items:center;gap:8px}
+.gchip .pdot{width:9px;height:9px;border-radius:50%;flex:none}
+.gchip .pdot.ok{background:var(--green);box-shadow:0 0 9px var(--green)}
+.gchip .pdot.warn{background:var(--amber);box-shadow:0 0 9px var(--amber)}
+.gchip .pdot.crit{background:var(--red);box-shadow:0 0 9px var(--red)}
+.gchip .pdot.off{background:var(--muted)}
+.gchip .pdot.err{background:var(--red)}
+.gname{font-size:13px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gval{font-size:14px;font-weight:750;font-variant-numeric:tabular-nums}
+.gval.ok{color:var(--green)} .gval.warn{color:var(--amber)} .gval.crit{color:var(--red)}
+.gval.spend{color:var(--gold)} .gval.muted{color:var(--muted)}
+.gtrack{height:5px;border-radius:4px;background:var(--card2);overflow:hidden}
+.gfill{height:100%;border-radius:4px;transition:width .4s}
+.gfill.ok{background:linear-gradient(90deg,var(--cyan),var(--green))}
+.gfill.warn{background:linear-gradient(90deg,var(--gold),var(--amber))}
+.gfill.crit{background:linear-gradient(90deg,var(--amber),var(--red))}
+.gfill.none{background:var(--line2)}
+.gsub{font-size:11px;color:var(--muted)}
+body.widget .glance-strip,body.glance .glance-strip{display:none}

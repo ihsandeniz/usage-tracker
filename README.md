@@ -68,7 +68,7 @@ X-GNOME-Autostart-enabled=true
 |---|---|---|
 | **Spend** | Today / Yesterday / 30-day **$** + per-model + 30-day chart | `~/.claude/projects/**/*.jsonl` tokens × real prices |
 | **Limits** | Session (5h) + Weekly usage %, reset countdown | Anthropic's own `/api/oauth/usage` (real), local estimate as fallback |
-| **Providers** | 15 adapters: real $ (OpenRouter, OpenAI), credit/quota (ElevenLabs, HuggingFace, Together, Novita, DeepInfra), local (Ollama, LM Studio, Jan), local-log tokens (Codex, Aider, Continue, Cody, Windsurf) | each provider's API / local files |
+| **Providers** | 16 adapters: real $ (OpenRouter, OpenAI, DeepSeek), credit/quota (ElevenLabs, HuggingFace, Together, Novita, DeepInfra), local (Ollama, LM Studio, Jan), local-log tokens (Codex, Aider, Continue, Cody, Windsurf) | each provider's API / local files |
 
 ### Is the data real?
 
@@ -164,15 +164,15 @@ python3 -m usage.engine     # limits + $ summary from real transcripts (no serve
 ## Roadmap
 
 - [x] Spend + real prices, live Claude limits (no calibration)
-- [x] Multi-provider adapters — 15 across 4 kinds (spend / tokens / local / quota)
-  - real $: OpenRouter, OpenAI (Costs API, admin key)
+- [x] Multi-provider adapters — 16 across 4 kinds (spend / tokens / local / quota)
+  - real $: OpenRouter, OpenAI (Costs API, admin key), DeepSeek *(balance API — documented, candidate)*
   - credit/quota: ElevenLabs, HuggingFace, Together, Novita, DeepInfra *(some candidate — verify with a live key)*
   - local ($0): Ollama, LM Studio, Jan
   - local-log tokens: Codex, Aider, Continue, Cody, Windsurf
 - [x] waybar badge + movable/resizable floating widget
 - [x] Per-provider data selection (⚙ View tab → `view_config.json`; waybar/widget/panel obey)
 - [x] Optional native system-tray icon (Qt `QSystemTrayIcon`; SNI → waybar tray)
-- [ ] Verify candidate endpoints (Together / Novita / DeepInfra / HuggingFace) against live keys
+- [ ] Verify candidate endpoints (Together / Novita / DeepInfra / HuggingFace / DeepSeek) against live keys
 
 ## Contributing
 

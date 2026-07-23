@@ -94,6 +94,53 @@ function renderLimits(u) {
 
 function esc(s) { return String(s ?? '').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
 
+// ── TEK BAKIŞ ŞERİDİ (FAZ 5c) — tüm sağlayıcıların manşet durumu tek satırda, tık→karta kaydır
+function pctCls(p) { return p == null ? 'none' : p >= 90 ? 'crit' : p >= 75 ? 'warn' : 'ok'; }
+function gchip(name, dotCls, valText, valCls, pct, target) {
+  const w = pct == null ? 0 : Math.min(100, pct);
+  const bar = pct == null ? ''
+    : `<div class="gtrack"><div class="gfill ${pctCls(pct)}" style="width:${w}%"></div></div>`;
+  return `<button class="gchip" data-target="${esc(target)}" title="${esc(name)} → karta git">
+    <div class="gchip-top"><span class="pdot ${dotCls}"></span><span class="gname">${esc(name)}</span>
+      <span class="gval ${valCls}">${esc(valText)}</span></div>${bar}</button>`;
+}
+function renderGlanceStrip(usage, providers) {
+  const items = [];
+  // Claude — en yüksek limit %
+  const cl = [usage.session, usage.weeklyAll, usage.weeklyModel].filter(l => l && l.pct != null);
+  if (cl.length) {
+    const hi = cl.reduce((a, b) => (b.pct > a.pct ? b : a));
+    const cls = pctCls(hi.pct);
+    items.push(gchip('Claude', cls, hi.pct.toFixed(0) + '%', cls, hi.pct, '.limits'));
+  }
+  // Diğer sağlayıcılar — tür bazlı manşet
+  for (const c of providers) {
+    let dot = c.status === 'ok' ? 'ok' : c.status === 'offline' ? 'off' : 'err';
+    let val = '—', vcls = 'muted', pct = null;
+    if (c.status === 'error') { val = 'hata'; vcls = 'crit'; dot = 'err'; }
+    else if (c.kind === 'spend') {
+      if (c.limit && c.limit.pct != null) { pct = c.limit.pct; dot = pctCls(pct); vcls = pctCls(pct); val = pct.toFixed(0) + '%'; }
+      else if (c.spend && c.spend.today != null) { val = fmtUsd(c.spend.today); vcls = 'spend'; }
+      else if (c.balance) { val = fmtUsd(c.balance.remaining); vcls = 'spend'; }
+    } else if (c.kind === 'tokens') {
+      if (c.status === 'offline') { val = 'kapalı'; vcls = 'muted'; }
+      else { val = (c.total && c.total.usd != null) ? fmtUsd(c.total.usd) : fmtTok((c.tokens || {}).total); vcls = 'spend'; }
+    } else if (c.kind === 'local') {
+      if (c.status === 'offline') { val = 'kapalı'; vcls = 'muted'; }
+      else { val = (c.modelCount || 0) + ' model'; vcls = 'ok'; }
+    } else if (c.kind === 'quota') {
+      if (c.quota && c.quota.pct != null) { pct = c.quota.pct; dot = pctCls(pct); vcls = pctCls(pct); val = pct.toFixed(0) + '%'; }
+    }
+    items.push(gchip(c.name, dot, val, vcls, pct, '#prov-' + c.id));
+  }
+  $('gstrip').innerHTML = items.join('') || '<span class="muted">kaynak yok</span>';
+  $('gstrip-count').textContent = items.length + ' kaynak';
+  document.querySelectorAll('#gstrip .gchip').forEach(b => b.addEventListener('click', () => {
+    const t = document.querySelector(b.getAttribute('data-target'));
+    if (t) t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+}
+
 // ── ÇOK-SAĞLAYICI (FAZ 2) ────────────────────────────────
 function fmtSize(b) {
   if (!b) return '';
@@ -197,7 +244,7 @@ function provShell(c, body) {
     : c.kind === 'local' ? 'yerel'
     : c.kind === 'tokens' ? (c.auth === 'yerel-log' ? 'yerel-log' : 'abonelik')
     : (c.tier || '');
-  return `<div class="prov">
+  return `<div class="prov" id="prov-${esc(c.id)}">
     <div class="prov-head"><span class="pdot ${dot}"></span><span class="prov-name">${esc(c.name)}</span>
       ${badge ? `<span class="prov-badge">${esc(badge)}</span>` : ''}</div>
     ${body}</div>`;
@@ -243,6 +290,7 @@ async function refresh() {
       renderSpend(spend);
       renderLimits(usage);
       renderProviders(prov.providers || []);
+      renderGlanceStrip(usage, prov.providers || []);
     }
   } catch (e) {
     $('updated').textContent = 'hata: ' + e.message;
