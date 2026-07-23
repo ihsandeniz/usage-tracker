@@ -6,6 +6,8 @@ After=default.target
 [Service]
 Type=simple
 WorkingDirectory=@@ROOT@@
+# Provider API keys — optional; the leading `-` means "don't fail if it's missing".
+EnvironmentFile=-%h/.config/usage-tracker/env
 ExecStart=@@PYTHON@@ @@ROOT@@/server.py
 Restart=on-failure
 RestartSec=5

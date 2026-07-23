@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # usage-tracker installer — makes the surface portable on any machine.
-# Creates surface/surface.conf, marks scripts executable, and prints ready-to-paste
-# waybar / autostart snippets. Safe to re-run; never touches ~/.config.
+# Creates surface/surface.conf + ~/.config/usage-tracker/env, marks scripts
+# executable, and prints ready-to-paste waybar / autostart snippets.
+# Safe to re-run; only writes its own config dir — never edits your waybar/hypr configs.
+#
+# Prefer a guided, interactive setup? Run ./setup.sh instead.
 set -eu
 
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 SURFACE="$ROOT/surface"
 CONF="$SURFACE/surface.conf"
+ENV_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/usage-tracker"
+ENV_FILE="$ENV_DIR/env"
 
 say()  { printf '\033[36m▸\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!\033[0m %s\n' "$*"; }
@@ -42,8 +47,18 @@ else
   say "keeping existing surface/surface.conf"
 fi
 
+# 2.5) provider keys env file ----------------------------------------------
+if [ ! -f "$ENV_FILE" ]; then
+  mkdir -p "$ENV_DIR"
+  cp "$ROOT/packaging/env.example" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"   # keys are secrets — owner-only
+  ok "created $ENV_FILE (fill in the providers you use)"
+else
+  say "keeping existing $ENV_FILE"
+fi
+
 # 3) Executable bits --------------------------------------------------------
-chmod +x "$ROOT/start.sh" "$ROOT/service.sh" "$ROOT/install.sh" \
+chmod +x "$ROOT/start.sh" "$ROOT/service.sh" "$ROOT/install.sh" "$ROOT/setup.sh" \
          "$SURFACE/usage-widget" "$SURFACE/waybar-usage.sh" 2>/dev/null || true
 ok "scripts marked executable"
 
@@ -74,5 +89,11 @@ echo "   $SURFACE/usage-widget open        # show it (drag: Super+LMB · resize:
 echo "   $SURFACE/usage-widget toggle      # show/hide"
 echo "   size: edit WIDGET_SIZE in $CONF (the browser remembers your drags after that)"
 echo "   autostart (Hyprland): exec-once = $SURFACE/usage-widget open"
+echo
+echo "4) hosted providers (optional) — add API keys to see OpenRouter/OpenAI/… cards:"
+echo "   \$EDITOR $ENV_FILE"
+echo "   (Claude Code, Codex and local runners need NO key — they read local files.)"
 echo "──────────────────────────────────────────────────────────────"
+echo
+say "Tip: ./setup.sh walks you through all of this interactively (server + waybar + keys)."
 ok "done"

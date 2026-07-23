@@ -25,13 +25,20 @@ If you use Claude Code, Codex, OpenRouter, Ollama etc., your spend and rate-limi
 ```bash
 git clone https://github.com/ihsandeniz/usage-tracker.git
 cd usage-tracker
-./install.sh          # generates machine-specific config, prints waybar/widget snippets
+./setup.sh            # ★ guided wizard: server + waybar badge + widget + keys
+```
+
+Prefer to do it by hand? Skip the wizard:
+
+```bash
+./install.sh          # checks deps, generates config + keys file, prints snippets
 ./start.sh            # → http://127.0.0.1:8770
 ```
 
 **Requirements:** Python 3.9+ (stdlib). `curl` + `jq` for the waybar feeder. A Chromium-family
 browser (optional, for the floating widget), `hyprctl` (optional, auto-floats the widget on
-Hyprland). `install.sh` reports what's missing.
+Hyprland), `wl-copy`/`xclip` (optional, lets the wizard copy the waybar snippet). `install.sh`
+reports what's missing.
 
 ## Autostart (recommended)
 
@@ -61,6 +68,25 @@ Exec=/ABS/PATH/start.sh
 X-GNOME-Autostart-enabled=true
 ```
 </details>
+
+## Provider keys
+
+Claude Code, Codex and local runners (Ollama / LM Studio / Jan) need **no key** — they read files already on your disk. Hosted providers need an API key to show a card. A missing key just hides that card (**no dead cards**) — nothing breaks.
+
+Keys live in **one file**, `~/.config/usage-tracker/env` (created by `install.sh`/`setup.sh`, `chmod 600`). It's loaded by both `./start.sh` and the systemd service, so keys work whether you run the server by hand or on login. Format is `KEY=value`, one per line — uncomment what you use:
+
+| Provider | Env var | Shows | Get a key |
+|---|---|---|---|
+| OpenRouter | `OPENROUTER_API_KEY` | spend + credit + daily limit | <https://openrouter.ai/keys> |
+| OpenAI | `OPENAI_ADMIN_KEY` | Costs API spend — needs an **admin** key (project key → 401) | Platform → *Admin keys* |
+| DeepSeek | `DEEPSEEK_API_KEY` | balance *(candidate — not yet live-verified)* | <https://platform.deepseek.com> |
+| ElevenLabs | `ELEVENLABS_API_KEY` | character quota + monthly reset | ElevenLabs → *Profile* |
+| Together | `TOGETHER_API_KEY` | credit balance *(candidate)* | <https://api.together.xyz/settings/api-keys> |
+| Novita | `NOVITA_API_KEY` | credit balance *(candidate)* | <https://novita.ai/settings/key-management> |
+| DeepInfra | `DEEPINFRA_API_KEY` | credit balance *(candidate)* | DeepInfra → *API keys* |
+| Hugging Face | `HUGGINGFACE_API_KEY` / `HF_TOKEN` | quota *(candidate)* | <https://huggingface.co/settings/tokens> |
+
+After editing keys, restart the server: `./service.sh restart` (or re-run `./start.sh`). Providers marked *candidate* have documented endpoints not yet verified against a live key — if one misbehaves it shows an honest error card, never a wrong number.
 
 ## What it tracks
 
