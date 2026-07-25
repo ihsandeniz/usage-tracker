@@ -25,8 +25,28 @@ If you use Claude Code, Codex, OpenRouter, Ollama etc., your spend and rate-limi
 ```bash
 git clone https://github.com/ihsandeniz/usage-tracker.git
 cd usage-tracker
-./setup.sh            # ★ guided wizard: server + waybar badge + widget + keys
+./setup.sh            # ★ guided wizard: deps → server → waybar → widget/tray → keys → verify
 ```
+
+```bash
+./setup.sh --auto       # non-interactive: recommended answer for every question
+./setup.sh --uninstall  # undo everything the wizard set up (keys and repo stay)
+./setup.sh --help
+```
+
+What the wizard will and won't do to your system:
+
+- **Backs up every file it touches** as `<file>.bak-usage-tracker`.
+- **Edits your waybar config surgically** — comments and formatting survive. It parses the file
+  before and after, and rolls back if the result isn't valid JSONC.
+- **Refuses to guess.** Unparseable config, or a `modules-*` list that lives in an `include`?
+  It leaves the file alone and hands you the snippet (on your clipboard) to paste yourself.
+- **Idempotent.** Re-run it as often as you like; already-done steps are no-ops.
+- **Imports API keys you already exported in your shell** into the keys file — because shell
+  exports never reach the autostarted service, which used to leave cards silently empty.
+- **Verifies instead of promising**: at the end it queries the server, counts resolved provider
+  cards, and runs the waybar feeder once to show you its real output.
+- No root, no network calls, nothing outside `~/.config` and this repo.
 
 Prefer to do it by hand? Skip the wizard:
 

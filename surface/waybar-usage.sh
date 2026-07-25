@@ -12,7 +12,9 @@ set -u
 
 SELF_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 CONF="$SELF_DIR/surface.conf"
+_env_url="${USAGE_URL:-}"          # env wins over the config file, not the other
 [ -f "$CONF" ] && . "$CONF" || true
+[ -n "$_env_url" ] && USAGE_URL="$_env_url"
 URL="${USAGE_URL:-http://127.0.0.1:8770}/v1/usage"
 
 json="$(curl -s --max-time 3 "$URL" 2>/dev/null)"
@@ -46,11 +48,19 @@ echo "$json" | jq -c '
     end;
   def rst(sec): (dur(sec)) as $t | (if $t == "" then "" else "  <span color=\"#8fb6d6\">↺" + $t + "</span>" end);
 
+  # An unknown percentage (live endpoint down + no trustworthy calibration) must
+  # not render as 0% — that reads as "nothing used", which is just as wrong as
+  # the 400% it replaced. Unknown shows "—" and stays grey.
+  def num(p): if p == null then "—" else ((p*10|round/10)|tostring) + "%" end;
+
   (.providers[] | select(.id == "claude")) as $claude
-  | ($claude.limits.session.pct // 0) as $sess_pct
-  | ($claude.limits.weekly.pct // 0) as $week_pct
+  | ($claude.limits.session.pct) as $sess_raw
+  | ($claude.limits.weekly.pct)  as $week_raw
+  | ($sess_raw // 0) as $sess_pct
+  | ($week_raw // 0) as $week_pct
   | ([$sess_pct, $week_pct] | max) as $hi_pct
-  | (if $hi_pct >= 90 then "crit" elif $hi_pct >= 75 then "warn" else "ok" end) as $class
+  | (if ($sess_raw == null and $week_raw == null) then "off"
+     elif $hi_pct >= 90 then "crit" elif $hi_pct >= 75 then "warn" else "ok" end) as $class
 
   # Claude — bar + reset countdown + forecast
   | (
@@ -102,7 +112,7 @@ echo "$json" | jq -c '
     ) as $others_line
 
   | {
-      text: ("◐ S" + (($sess_pct*10|round/10)|tostring) + "% W" + (($week_pct*10|round/10)|tostring) + "%"),
+      text: ("◐ S" + num($sess_raw) + " W" + num($week_raw)),
       percentage: ($hi_pct|floor),
       class: $class,
       tooltip: ($claude_line

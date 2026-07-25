@@ -105,6 +105,41 @@ def _fetch_raw():
         return {'ok': False, 'error': f'{type(e).__name__}: {e}', 'raw': None}
 
 
+def _disk_cache_path():
+    import os
+    base = os.environ.get('XDG_STATE_HOME') or str(Path.home() / '.local' / 'state')
+    return Path(base) / 'usage-tracker' / 'live-last-good.json'
+
+
+def _load_disk_cache():
+    """Son iyi sonucu diskten oku — süreç yeniden başladığında elimiz boş kalmasın.
+
+    Bellekteki cache restart'ta uçuyordu; hemen ardından uç 429 verirse
+    gösterecek hiçbir şey kalmıyor ve rozet boşalıyordu. Diskteki kopya bu
+    boşluğu kapatır: gerçek değeri 'stale' işaretiyle göstermek, hiç
+    göstermemekten de uydurmaktan da dürüst.
+    """
+    try:
+        d = json.loads(_disk_cache_path().read_text(encoding='utf-8'))
+        ts, res = d.get('at'), d.get('res')
+        if isinstance(ts, (int, float)) and isinstance(res, dict) and res.get('ok'):
+            return (ts, res)
+    except Exception:
+        pass
+    return None
+
+
+def _save_disk_cache(at: float, res: dict):
+    try:
+        p = _disk_cache_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix('.tmp')
+        tmp.write_text(json.dumps({'at': at, 'res': res}), encoding='utf-8')
+        tmp.replace(p)          # atomik — yarım dosya okunmasın
+    except Exception:
+        pass                    # cache lüks; yazamazsak sessizce devam
+
+
 def fetch(force: bool = False) -> dict:
     """TTL-cache'li canlı limit. force=True cache'i atlar (dikkat: 429 riski)."""
     import os
@@ -119,6 +154,8 @@ def fetch(force: bool = False) -> dict:
     if exp and exp <= now_ms:
         _CACHE = None
     with _LOCK:
+        if _CACHE is None:
+            _CACHE = _load_disk_cache()      # restart sonrası ilk çağrı
         if _CACHE and not force and (now - _CACHE[0]) < CACHE_TTL:
             res = dict(_CACHE[1]); res['cached'] = True
             res['ageSec'] = round(now - _CACHE[0], 1)
@@ -128,6 +165,7 @@ def fetch(force: bool = False) -> dict:
         # başarılı sonucu cache'le; başarısızsa son iyi sonucu koru ama hatayı da bildir
         if res.get('ok'):
             _CACHE = (now, res)
+            _save_disk_cache(now, res)
         elif _CACHE:
             stale = dict(_CACHE[1])
             stale.update({'ok': True, 'stale': True, 'staleReason': res.get('error'),

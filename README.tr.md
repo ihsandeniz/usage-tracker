@@ -17,6 +17,32 @@ Tüm AI kullanımını, **limitini ve gerçek $ harcamasını tek yerde** göste
 ```bash
 git clone https://github.com/ihsandeniz/usage-tracker.git
 cd usage-tracker
+./setup.sh            # ★ sihirbaz: bağımlılık → sunucu → waybar → widget/tray → key → doğrulama
+```
+
+```bash
+./setup.sh --auto       # soru sormaz, her adımda önerilen cevabı alır
+./setup.sh --uninstall  # sihirbazın kurduğu her şeyi geri alır (key'ler ve repo kalır)
+./setup.sh --help
+```
+
+Sihirbaz sisteminde ne yapar, ne yapmaz:
+
+- **Dokunduğu her dosyayı yedekler** (`<dosya>.bak-usage-tracker`).
+- **waybar config'ini cerrahi düzenler** — yorumların ve biçimin korunur. Dosyayı düzenlemeden
+  önce ve sonra parse eder; sonuç geçerli jsonc değilse geri alır.
+- **Tahmin yürütmez.** Config bozuksa ya da `modules-*` listesi bir `include` içindeyse dosyaya
+  dokunmaz; snippet'i panona kopyalar, sen yapıştırırsın.
+- **Tekrar çalıştırılabilir.** Zaten yapılmış adımlar hiçbir şeyi değiştirmez.
+- **Shell'inde tanımlı API key'leri** key dosyasına aktarır — çünkü shell export'ları otomatik
+  başlayan servise ulaşmaz; kartlar bu yüzden sessizce boş kalıyordu.
+- **Söz vermez, doğrular:** sonda sunucuya sorar, çözülen sağlayıcı kartlarını sayar ve waybar
+  besleyicisini bir kez çalıştırıp gerçek çıktısını gösterir.
+- root yok, dış ağ isteği yok; `~/.config` ve bu repo dışına çıkmaz.
+
+Elle kurmayı tercih edersen sihirbazı atla:
+
+```bash
 ./install.sh          # makineye özel config üretir, waybar/widget snippet'lerini basar
 ./start.sh            # → http://127.0.0.1:8770
 ```

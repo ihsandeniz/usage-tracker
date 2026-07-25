@@ -24,6 +24,9 @@ CLAUDE_PROJECTS_DIR  = Path.home() / '.claude' / 'projects'
 CALIB_PATH           = Path(__file__).resolve().parent.parent / 'usage_calib.json'
 USAGE_SESSION_WINDOW = 5 * 3600            # sn — 5 saatlik oturum limiti
 USAGE_WEEKLY_WINDOW  = 7 * 24 * 3600       # sn — haftalık limit
+# Kalibrasyondan gelen yüzde bunu aşarsa bütçe tahmini bayat/yanlış demektir —
+# gerçekten limit aşımı değil. Üstünü "bilinmiyor" say (bkz. bar() içindeki not).
+_CALIB_SANITY_PCT    = 110.0
 
 _CACHE = {}                                # {path: (mtime, size, [Turn...])}
 _LOCK  = threading.Lock()
@@ -288,6 +291,14 @@ def compute_usage() -> dict:
 
     def bar(units, raw, budget, reset_ms, window_ms=None):
         pct = round(units / budget * 100, 1) if budget else None
+        # A calibration-derived percentage way past 100 doesn't mean "you blew
+        # through your limit" — it means the calibrated budget is wrong (stale
+        # calibration, plan change, a new machine). Reporting 410% as a red
+        # CRIT badge is a confident lie; "unknown" is the honest answer. The
+        # live overlay, when it succeeds, overwrites this with the real number.
+        suspect = pct is not None and pct > _CALIB_SANITY_PCT
+        if suspect:
+            pct = None
         forecast = None
         if pct is not None and reset_ms and window_ms:
             window_start_ms = reset_ms - window_ms
@@ -298,6 +309,7 @@ def compute_usage() -> dict:
             'rawTokens':  int(raw),
             'budget':     int(budget) if budget else None,
             'pct':        pct,
+            'calibSuspect': suspect or None,
             'resetAtMs':  reset_ms or None,
             'resetInSec': int((reset_ms - now_ms) / 1000) if reset_ms else None,
             'forecast':   forecast,
@@ -519,6 +531,7 @@ def usage_wire() -> dict:
         if not b:
             return None
         return {'pct': b.get('pct'), 'used': b.get('units'), 'budget': b.get('budget'),
+                'calibSuspect': b.get('calibSuspect'),
                 'resetAtMs': b.get('resetAtMs'), 'resetInSec': b.get('resetInSec')}
 
     claude = {
