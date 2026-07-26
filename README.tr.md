@@ -24,6 +24,8 @@ Yazmak yerine tıklamak istersen: `./setup.sh --ui` aynı altı adımı bir tara
 penceresinde açar — her adım ne yazacağının **gerçek diff'ini** gösterir, yanında da
 "Geri al" düğmesi durur.
 
+![kurulum sihirbazı, waybar config'ine yazacağı diff'i gösteriyor](docs/setup-wizard.png)
+
 ```bash
 ./setup.sh --ui         # sihirbaz, sayfa olarak (pencere açar; URL'i her hâlükârda yazar)
 ./setup.sh --auto       # soru sormaz, her adımda önerilen cevabı alır

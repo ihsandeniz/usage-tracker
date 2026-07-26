@@ -5,6 +5,8 @@ A tiny, dependency-free tool that shows **all your AI usage, rate limits, and re
 - **Web panel** at `http://127.0.0.1:8770` — spend cards, 30-day chart, per-model table, live limit bars.
 - **waybar badge** — `◐ 64%` in your bar, colored by how close you are to the wall.
 - **floating widget** — the panel as a movable, resizable, always-on-top window.
+- **guided setup** — `./setup.sh`, or `./setup.sh --ui` for the same steps in a browser window.
+  Every step shows a real diff of what it is about to write, and can be undone from the same page.
 
 Built with **stdlib Python + Vanilla JS**. No `pip install`, no Node, no Rust. Loopback-only.
 
@@ -30,6 +32,8 @@ cd usage-tracker
 
 Rather click than type? `./setup.sh --ui` runs the same six steps in a browser window —
 each one showing a real diff of what it is about to write, with an Undo button next to it.
+
+![the setup wizard showing the exact diff it will write to your waybar config](docs/setup-wizard.png)
 
 ```bash
 ./setup.sh --ui         # the wizard as a page (opens a window; prints the URL either way)
