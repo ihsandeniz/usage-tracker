@@ -32,7 +32,7 @@ MIME = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; cha
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'usage-tracker/0.1'
+    server_version = 'usage-tracker/0.2'
 
     def log_message(self, fmt, *args):          # sessiz — stderr'i kirletme
         pass
