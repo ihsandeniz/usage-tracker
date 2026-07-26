@@ -28,11 +28,19 @@ cd usage-tracker
 ./setup.sh            # ★ guided wizard: deps → server → waybar → widget/tray → keys → verify
 ```
 
+Rather click than type? `./setup.sh --ui` runs the same six steps in a browser window —
+each one showing a real diff of what it is about to write, with an Undo button next to it.
+
 ```bash
+./setup.sh --ui         # the wizard as a page (opens a window; prints the URL either way)
 ./setup.sh --auto       # non-interactive: recommended answer for every question
 ./setup.sh --uninstall  # undo everything the wizard set up (keys and repo stay)
 ./setup.sh --help
 ```
+
+The terminal wizard stays the default, because it is the one that works over SSH, on a
+headless box, and in a dotfiles script. Both faces call the same code — `setup.sh probe`,
+`setup.sh do <step>`, `setup.sh undo <step>` — so they cannot drift apart.
 
 What the wizard will and won't do to your system:
 
@@ -47,6 +55,24 @@ What the wizard will and won't do to your system:
 - **Verifies instead of promising**: at the end it queries the server, counts resolved provider
   cards, and runs the waybar feeder once to show you its real output.
 - No root, no network calls, nothing outside `~/.config` and this repo.
+
+### Why `--ui` is a separate, temporary server
+
+The long-running server (`:8770`) is **read-only**, and that is what lets this tool claim
+nothing leaves your machine. Endpoints that edit your waybar config or touch your API keys
+do not belong there, because a browser can be tricked into calling a localhost server: any
+page you have open can POST to `127.0.0.1` (CORS blocks reading the reply, not sending the
+request), and a domain that resolves to `127.0.0.1` becomes same-origin and can read replies
+too. So `--ui` starts a **separate** server that
+
+- picks an ephemeral port and mints a one-time token, passed in the URL fragment
+  (fragments are never sent to a server, so the token cannot land in a log);
+- rejects any request whose `Host` is not `127.0.0.1:<port>` — this is what stops DNS rebinding;
+- rejects any request with a foreign `Origin`, and any API call without the token;
+- **never returns a key value** — you can set or remove a key, never read one back;
+- exits when you press Finish, or after ten idle minutes.
+
+Key values reach `setup.sh` over stdin, never argv, which is world-readable in `/proc`.
 
 Prefer to do it by hand? Skip the wizard:
 

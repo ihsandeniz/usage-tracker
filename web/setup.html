@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>usage-tracker · setup</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/setup.css">
+</head>
+<body class="setup">
+
+<div class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>usage<em>-tracker</em></h1>
+    <span class="tag" data-i18n="tag">setup</span>
+  </div>
+  <div class="meta">
+    <span class="note" id="conn"></span>
+    <button class="txtbtn" id="lang" title="Türkçe / English">TR</button>
+    <button class="ghost" id="refresh" title="re-check">⟳</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section class="card intro">
+    <h2 data-i18n="introTitle">Let's get you set up</h2>
+    <p class="note" data-i18n="introBody">
+      Six steps. Every one shows you exactly what it will write before it writes it,
+      backs the file up first, and can be undone from this same page. Nothing needs
+      root, nothing leaves this machine.
+    </p>
+    <div class="intro-actions">
+      <button class="primary" id="auto-all" data-i18n="autoAll">Set up the recommended parts</button>
+      <span class="note" data-i18n="autoNote">— skips anything risky and stops to ask</span>
+    </div>
+  </section>
+
+  <ol class="steps" id="steps"></ol>
+
+  <section class="card outro">
+    <div class="outro-row">
+      <div>
+        <h2 data-i18n="doneTitle">Finished?</h2>
+        <p class="note" data-i18n="doneBody">
+          Closing shuts this wizard down — the panel and badge keep running.
+          It also closes itself after 10 idle minutes.
+        </p>
+      </div>
+      <button class="primary" id="finish" data-i18n="finish">Finish &amp; close</button>
+    </div>
+  </section>
+
+  <p class="footnote">
+    <span data-i18n="footPanel">panel</span>: <code id="panel-url">http://127.0.0.1:8770</code> ·
+    <span data-i18n="footUndo">undo everything</span>: <code>./setup.sh --uninstall</code>
+  </p>
+</div>
+
+<script src="/setup.js"></script>
+</body>
+</html>

@@ -20,11 +20,20 @@ cd usage-tracker
 ./setup.sh            # ★ sihirbaz: bağımlılık → sunucu → waybar → widget/tray → key → doğrulama
 ```
 
+Yazmak yerine tıklamak istersen: `./setup.sh --ui` aynı altı adımı bir tarayıcı
+penceresinde açar — her adım ne yazacağının **gerçek diff'ini** gösterir, yanında da
+"Geri al" düğmesi durur.
+
 ```bash
+./setup.sh --ui         # sihirbaz, sayfa olarak (pencere açar; URL'i her hâlükârda yazar)
 ./setup.sh --auto       # soru sormaz, her adımda önerilen cevabı alır
 ./setup.sh --uninstall  # sihirbazın kurduğu her şeyi geri alır (key'ler ve repo kalır)
 ./setup.sh --help
 ```
+
+Varsayılan terminal sihirbazı kalır — SSH'ta, ekransız makinede ve dotfiles scriptinde
+çalışan tek yol o. İki yüz de aynı kodu çağırır (`setup.sh probe` · `do <adım>` ·
+`undo <adım>`), bu yüzden zamanla birbirinden ayrışamazlar.
 
 Sihirbaz sisteminde ne yapar, ne yapmaz:
 
@@ -39,6 +48,25 @@ Sihirbaz sisteminde ne yapar, ne yapmaz:
 - **Söz vermez, doğrular:** sonda sunucuya sorar, çözülen sağlayıcı kartlarını sayar ve waybar
   besleyicisini bir kez çalıştırıp gerçek çıktısını gösterir.
 - root yok, dış ağ isteği yok; `~/.config` ve bu repo dışına çıkmaz.
+
+### `--ui` neden ayrı ve geçici bir sunucu?
+
+Sürekli çalışan sunucu (`:8770`) **salt-okunurdur** ve aracın "hiçbir şey bu makineden
+çıkmaz" iddiası buna dayanır. waybar config'ini düzenleyen veya API anahtarlarına dokunan
+uçların orada işi yok: bir tarayıcı, loopback sunucusuna istek atmaya kandırılabilir. Açık
+olan herhangi bir sayfa `127.0.0.1`'e POST atabilir (CORS yanıtı *okumayı* engeller, isteği
+*göndermeyi* değil) ve `127.0.0.1`'e çözülen bir alan adı aynı-köken sayılıp yanıtı da
+okuyabilir. Bu yüzden `--ui` **ayrı** bir sunucu başlatır:
+
+- rastgele bir port seçer ve tek kullanımlık bir jeton üretir; jeton URL'in fragment'ında
+  gider (fragment'lar sunucuya hiç gönderilmez, yani bir log'a düşemez);
+- `Host` başlığı `127.0.0.1:<port>` değilse reddeder — DNS rebinding'i kapatan şey budur;
+- yabancı `Origin`'li her isteği ve jetonsuz her API çağrısını reddeder;
+- **hiçbir anahtar değerini geri döndürmez** — anahtar yazabilir veya silebilirsin, okuyamazsın;
+- "Bitir"e bastığında ya da 10 dakika işlem olmazsa kendini kapatır.
+
+Anahtar değerleri `setup.sh`'a stdin ile ulaşır; argv ile asla — argv `/proc` üzerinden
+herkese okunabilir.
 
 Elle kurmayı tercih edersen sihirbazı atla:
 

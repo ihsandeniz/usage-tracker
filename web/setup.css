@@ -1,0 +1,147 @@
+/* usage-tracker — setup wizard.
+   Rides on styles.css for the colour tokens and the page chrome; everything
+   below is stepper-specific. Single column on purpose: a wizard that reflows
+   into two columns loses the one thing it has going for it, an obvious order. */
+
+body.setup { padding-bottom: 60px; }
+
+.wrap { max-width: 780px; margin: 26px auto; padding: 0 20px; }
+
+.txtbtn {
+  background: transparent; border: 1px solid var(--line2); color: var(--muted2);
+  padding: 6px 12px; border-radius: 9px; font-size: 12px; font-weight: 600;
+  letter-spacing: .3px; transition: .18s;
+}
+.txtbtn:hover { color: var(--cyan); border-color: var(--cyan); }
+.txtbtn[disabled] { opacity: .45; cursor: default; }
+.txtbtn[disabled]:hover { color: var(--muted2); border-color: var(--line2); }
+.primary[disabled] { opacity: .45; cursor: default; filter: none; box-shadow: none; }
+
+/* ── intro / outro ── */
+.intro h2, .outro h2 { font-size: 17px; margin: 0 0 8px; font-weight: 700; }
+.intro .note, .outro .note { margin: 0; max-width: 62ch; }
+.intro-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; }
+.outro { margin-top: 22px; }
+.outro-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.footnote { text-align: center; color: var(--muted); font-size: 12px; margin: 20px 0 0; }
+.footnote code { color: var(--muted2); background: var(--bg2); padding: 2px 7px; border-radius: 6px; }
+
+/* ── the stepper ── */
+.steps { list-style: none; margin: 22px 0 0; padding: 0; display: grid; gap: 16px; }
+.step { display: grid; grid-template-columns: 40px 1fr; gap: 14px; position: relative; }
+/* the rail that makes six cards read as one sequence */
+.step:not(:last-child)::before {
+  content: ''; position: absolute; left: 19px; top: 40px; bottom: -16px;
+  width: 2px; background: linear-gradient(180deg, var(--line2), var(--line));
+}
+.step-num {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--bg2); border: 1px solid var(--line2); color: var(--muted);
+  font-weight: 750; font-size: 14px; font-variant-numeric: tabular-nums;
+  position: relative; z-index: 1; transition: .25s;
+}
+.step.is-done .step-num {
+  background: linear-gradient(180deg, rgba(52,211,153,.18), rgba(52,211,153,.05));
+  border-color: rgba(52,211,153,.5); color: var(--green);
+}
+.step.is-blocked .step-num { opacity: .5; }
+.step.is-busy .step-num { border-color: var(--cyan); color: var(--cyan); animation: pulse 1.1s ease-in-out infinite; }
+
+.step-body { padding: 16px 18px; }
+.step-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.step-head h3 { font-size: 15px; margin: 0; font-weight: 650; }
+.step-desc { color: var(--muted2); font-size: 13px; margin: 0 0 12px; max-width: 60ch; }
+.pill.off { color: var(--muted); }
+.pill.crit { color: var(--red); border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.07); }
+
+/* ── facts table ──
+   The label column is capped: an `auto` first column lets one long path (a
+   keys file, a config path) starve the value column until it wraps one
+   character per line. Ask me how I know. */
+.facts { display: grid; grid-template-columns: minmax(72px, 26%) 1fr;
+  gap: 4px 14px; margin: 0 0 12px; font-size: 12.5px; }
+.facts dt { color: var(--muted); overflow-wrap: anywhere; }
+.facts dd { margin: 0; color: var(--txt); overflow-wrap: anywhere; }
+.facts dd.no  { color: var(--muted); }
+.facts dd.yes { color: var(--green); }
+.facts dd.warn { color: var(--amber); }
+
+/* ── disclosure: "what will this write?" ── */
+.disclose { margin: 0 0 12px; }
+.disclose-btn {
+  background: transparent; border: none; color: var(--cyan); font-size: 12.5px;
+  padding: 4px 0; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;
+}
+.disclose-btn::before { content: '▸'; transition: transform .18s; }
+.disclose.open .disclose-btn::before { transform: rotate(90deg); }
+.disclose-body { display: none; margin-top: 8px; }
+.disclose.open .disclose-body { display: block; }
+
+pre.code {
+  margin: 0; padding: 12px 14px; background: #080c12; border: 1px solid var(--line);
+  border-radius: 10px; overflow-x: auto; font-size: 12px; line-height: 1.55;
+  font-family: ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace;
+  color: var(--muted2); white-space: pre;
+}
+pre.code span { display: block; }
+pre.code .add { color: var(--green); }
+pre.code .del { color: var(--red); }
+pre.code .hunk { color: var(--cyan-dim); }
+.subsurface + .subsurface { margin-top: 14px; }
+/* Doubles as a path caption, so no uppercasing and no letter-spacing —
+   a shouted 40-character path is unreadable. */
+.code-label { font-size: 11px; color: var(--muted); margin: 10px 0 5px;
+  overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
+.code-label.head { font-family: inherit; font-weight: 700; font-size: 12px;
+  color: var(--gold); letter-spacing: .4px; text-transform: uppercase; }
+.code-label:first-child { margin-top: 0; }
+
+/* ── actions ── */
+.step-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
+.step-actions .spacer { flex: 1; }
+.opt { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted2); cursor: pointer; }
+.opt input { accent-color: var(--cyan); width: 15px; height: 15px; cursor: pointer; }
+.radio-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+
+/* ── key list ── */
+.keys { display: grid; gap: 7px; margin: 0 0 12px; }
+.keyrow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; padding: 7px 11px; }
+.keyrow .kname { font-size: 12.5px; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.keyrow .kstate { font-size: 11px; color: var(--muted); }
+.keyrow .kstate.set { color: var(--green); }
+.keyrow .kstate.shell { color: var(--amber); }
+.keyrow input[type=password], .keyrow input[type=text] {
+  grid-column: 1 / -1; background: #080c12; border: 1px solid var(--line2); color: var(--txt);
+  border-radius: 8px; padding: 7px 10px; font-size: 12.5px; font-family: ui-monospace, monospace;
+}
+.keys-more { margin-top: 4px; }
+
+/* ── per-step log ── */
+.step-log { margin-top: 12px; display: grid; gap: 3px; font-size: 12.5px; }
+.step-log:empty { display: none; }
+.logline { display: flex; gap: 8px; align-items: baseline; }
+.logline .sym { width: 12px; flex: none; text-align: center; font-weight: 700; }
+.logline.ok   .sym { color: var(--green); }
+.logline.warn .sym { color: var(--amber); }
+.logline.bad  .sym { color: var(--red); }
+.logline.info .sym { color: var(--cyan); }
+.logline span:last-child { color: var(--muted2); overflow-wrap: anywhere; }
+
+/* ── banner ── */
+.banner { border-radius: 10px; padding: 10px 13px; font-size: 12.5px; margin-bottom: 12px;
+  border: 1px solid var(--line2); color: var(--muted2); background: var(--bg2); }
+.banner.warn { border-color: rgba(251,191,36,.4); background: rgba(251,191,36,.07); color: var(--amber); }
+.banner.bad  { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.07); color: var(--red); }
+
+@media (max-width: 560px) {
+  .step { grid-template-columns: 30px 1fr; gap: 10px; }
+  .step-num { width: 30px; height: 30px; font-size: 12px; }
+  .step:not(:last-child)::before { left: 14px; top: 32px; }
+  .facts { grid-template-columns: 1fr; gap: 2px; }
+  .facts dt { margin-top: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-num, .disclose-btn::before, .txtbtn { transition: none; }
+  .step.is-busy .step-num { animation: none; }
+}

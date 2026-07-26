@@ -19,6 +19,7 @@ mkdir -p "$DEST"
 rsync -a --exclude='.git' \
          --exclude='__pycache__' --exclude='*.pyc' --exclude='*.log' \
          --exclude='usage_calib.json' \
+         --exclude='view_config.json' \
          --exclude='surface/surface.conf' \
          --exclude='CLAUDE.md' \
          "$SRC/" "$DEST/"
@@ -27,6 +28,8 @@ cd "$DEST"
 
 > `surface.conf` is **generated per-machine** by `./install.sh`, so it must NOT be committed.
 > `.gitignore` already lists it; the rsync exclude is belt-and-suspenders.
+> `view_config.json` and `usage_calib.json` are the same kind of thing — your own
+> state (which cards you hid, your calibration), not the project's.
 
 ## 2. Sanity check before pushing
 

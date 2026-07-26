@@ -200,7 +200,8 @@ def op_add(text: str, exec_path: str, click_path: str, list_name: str):
         f'{base}{ind}"exec": {json.dumps(exec_path, ensure_ascii=False)},\n'
         f'{base}{ind}"return-type": "json",\n'
         f'{base}{ind}"interval": 30'
-        + (f',\n{base}{ind}"on-click": {json.dumps(click_path)}' if click_path else "")
+        + (f',\n{base}{ind}"on-click": {json.dumps(click_path, ensure_ascii=False)}'
+           if click_path else "")
         + f"\n{base}}},"
     )
 
