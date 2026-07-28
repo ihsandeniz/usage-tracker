@@ -26,6 +26,14 @@ HOST = '127.0.0.1'                                 # loopback-only (güvenlik �
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
 WEBD = Path(__file__).resolve().parent / 'web'
 
+# DNS rebinding koruması: Host başlığı allowlist (setup_server.py'den uyarlanmış)
+# Meşru olanlar: 127.0.0.1:<PORT>, localhost:<PORT>, [::1]:<PORT>, portsuz varyantlar
+ALLOWED_HOSTS = {
+    f'127.0.0.1:{PORT}', '127.0.0.1',
+    f'localhost:{PORT}', 'localhost',
+    f'[::1]:{PORT}', '[::1]', '::1',
+}
+
 MIME = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8',
         '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
         '.svg': 'image/svg+xml', '.ico': 'image/x-icon'}
@@ -50,6 +58,22 @@ class Handler(BaseHTTPRequestHandler):
         """API error response — JSON format (tutarlı hata şeması)"""
         self._json(code, {'ok': False, 'error': msg})
 
+    def _check_host(self) -> bool:
+        """DNS rebinding guard: Host başlığını allowlist'e karşı doğrula.
+
+        curl --http1.0 gibi HTTP/1.0 istemcileri Host başlığı göndermeyebilir;
+        bunları meşru sayıyoruz (waybar besleyicisi curl kullanıyor, onu kırma).
+        Kötü niyetli Host (evil.com vb.) → 403.
+        """
+        host_header = (self.headers.get('Host') or '').strip()
+        # Host başlığı yoksa (HTTP/1.0): meşru sayıl
+        if not host_header:
+            return True
+        # Başlık varsa allowlist'te olmalı
+        if host_header not in ALLOWED_HOSTS:
+            self._error(403, 'bad Host header'); return False
+        return True
+
     def _read_json_body(self, limit: int = 2048):
         try:
             n = int(self.headers.get('Content-Length', 0))
@@ -63,6 +87,10 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
     def do_GET(self):
+        # DNS rebinding koruması: Host başlığını kontrol et
+        if not self._check_host():
+            return
+
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -134,6 +162,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
 
     def do_POST(self):
+        # DNS rebinding koruması: Host başlığını kontrol et
+        if not self._check_host():
+            return
+
         path = self.path.split('?')[0]
         if path in ('/api/calibrate', '/api/calibrate/'):
             # Content-Type validation
