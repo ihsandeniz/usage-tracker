@@ -1,6 +1,82 @@
 'use strict';
 // usage-tracker UI — Vanilla JS, sıfır bağımlılık. /api/spend + /api/usage poll.
 
+// ── i18n ──────────────────────────────────────────────────
+let LANG = localStorage.getItem('ut_lang_v1')
+  || ((navigator.language || 'en').toLowerCase().startsWith('tr') ? 'tr' : 'en');
+
+const I18N = {
+  en: {
+    spend: 'Real Spending', limits: 'Rate Limits', calibration: 'Calibration (backup)', view: 'View',
+    today: 'Today', yday: 'Yesterday', total: 'Last 30 days', month: 'This month',
+    daily: 'Daily spending (30d)', max: 'max', dailyLimit: 'Daily limit',
+    overview: 'Overview', provider: 'provider', modelCount: 'Installed model', used: 'Used',
+    credit: 'Remaining credit', session: 'session', unreachable: 'unreachable',
+    noData: 'no data', offline: 'service offline', uncalib: 'not calibrated',
+    units: 'units', calibrated: '✓ calibrated',
+    source: 'Source', refresh: 'Refresh', otherProviders: 'Other Providers',
+    cSessPct: 'Session %', cSessReset: 'Session reset (HH:MM)',
+    cWeekPct: 'Weekly (all) %', cWeekReset: 'Weekly reset (day+hour)',
+    cModelName: 'Model name', cModelPct: 'Model %', calibrateBtn: 'Calibrate',
+    phPct62: 'e.g. 62', phPct40: 'e.g. 40', phPct55: 'e.g. 55',
+    pageTitle: 'usage-tracker · Claude usage & spending',
+    provNote: 'An unconfigured provider opens no card. OpenRouter=real $ · Codex=subscription (API-equivalent $) · Ollama=local/free.',
+    viewNote: 'Show the checked providers; unchecked ones are hidden from the panel/waybar/widget.',
+    footerSrc: 'source: ~/.claude/projects + ~/.codex + OpenRouter API (read-only)'
+  },
+  tr: {
+    spend: 'Gerçek Harcama', limits: 'Claude Limitleri', calibration: 'Kalibrasyon (yedek)', view: 'Görünüm',
+    today: 'Bugün', yday: 'Dün', total: 'Son 30 gün', month: 'Bu ay',
+    daily: 'Günlük harcama (30g)', max: 'tavan', dailyLimit: 'Günlük limit',
+    overview: 'Tek Bakış',
+    provider: 'kaynak', modelCount: 'Kurulu model', used: 'Kullanılan',
+    credit: 'Kalan kredi', session: 'oturum', unreachable: 'erişilemedi',
+    noData: 'kaynak yok', offline: 'servis kapalı', uncalib: 'kalibre değil',
+    units: 'birim', calibrated: '✓ kalibre edildi',
+    source: 'Kaynak', refresh: 'Yenile', otherProviders: 'Diğer Sağlayıcılar',
+    cSessPct: 'Oturum %', cSessReset: 'Oturum reset (saat:dk)',
+    cWeekPct: 'Haftalık (tüm) %', cWeekReset: 'Haftalık reset (gün+saat)',
+    cModelName: 'Model adı', cModelPct: 'Model %', calibrateBtn: 'Kalibre et',
+    phPct62: 'ör. 62', phPct40: 'ör. 40', phPct55: 'ör. 55',
+    pageTitle: 'usage-tracker · Claude kullanım & harcama',
+    provNote: 'Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.',
+    viewNote: 'İşaretli sağlayıcıları göster; işaretsiz olanlar panel/waybar/widget\'tan gizlenir.',
+    footerSrc: 'kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)'
+  }
+};
+
+const t = (k) => I18N[LANG]?.[k] ?? I18N.en?.[k] ?? k;
+
+function updateI18n() {
+  // textContent updates
+  for (const el of document.querySelectorAll('[data-i18n]')) {
+    const key = el.getAttribute('data-i18n');
+    if (el.textContent && key) el.textContent = t(key);
+  }
+  // title attribute updates
+  for (const el of document.querySelectorAll('[data-i18n-title]')) {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) el.setAttribute('title', t(key));
+  }
+  // aria-label attribute updates
+  for (const el of document.querySelectorAll('[data-i18n-aria]')) {
+    const key = el.getAttribute('data-i18n-aria');
+    if (key) el.setAttribute('aria-label', t(key));
+  }
+  // HTML content updates (sözlükten; XSS risk yok)
+  for (const el of document.querySelectorAll('[data-i18n-html]')) {
+    const key = el.getAttribute('data-i18n-html');
+    if (key) el.innerHTML = t(key);
+  }
+  // placeholder attribute updates
+  for (const el of document.querySelectorAll('[data-i18n-ph]')) {
+    const key = el.getAttribute('data-i18n-ph');
+    if (key) el.setAttribute('placeholder', t(key));
+  }
+  document.title = t('pageTitle');
+  document.documentElement.lang = LANG;
+}
+
 const $ = (id) => document.getElementById(id);
 const fmtUsd = (n) => '$' + (n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtTok = (n) => (n ?? 0) >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
@@ -32,15 +108,15 @@ function renderSpend(s) {
     const cls = d.day === todayKey ? 'bar today' : 'bar';
     return `<div class="${cls}" style="height:${h}%" title="${esc(d.day)}: ${fmtUsd(d.usd)}"></div>`;
   }).join('');
-  $('spark-max').textContent = 'tavan ' + fmtUsd(max);
+  $('spark-max').textContent = t('max') + ' ' + fmtUsd(max);
 
   // model tablosu
   $('model-rows').innerHTML = (s.byModel || []).map(m => {
-    const t = m.tokens || {};
+    const tok = m.tokens || {};
     return `<tr>
       <td class="m-name">${esc(m.short || m.model)}<div class="muted">${esc(m.model)}</div></td>
       <td><span class="src ${m.source}">${esc(m.source)}</span></td>
-      <td class="r">${fmtTok(t.output)} / ${fmtTok(t.input)} / ${fmtTok((t.cache_read || 0) + (t.cache_write || 0))}</td>
+      <td class="r">${fmtTok(tok.output)} / ${fmtTok(tok.input)} / ${fmtTok((tok.cache_read || 0) + (tok.cache_write || 0))}</td>
       <td class="r usd">${fmtUsd(m.usd)}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="4" class="muted">veri yok</td></tr>';
@@ -65,8 +141,9 @@ function lbar(name, sub, b, th) {
   const pct = b && b.pct != null ? b.pct : null;
   const w = pct == null ? 8 : Math.min(100, pct);
   const label = pct == null ? '—' : pct.toFixed(1) + '%';
-  const reset = b && b.resetInSec != null ? `reset ${countdown(b.resetInSec)}` : 'kalibre değil';
-  const budget = b && b.budget ? `${(b.used || 0).toLocaleString()} / ${b.budget.toLocaleString()} birim` : `${(b && b.used || 0).toLocaleString()} birim`;
+  const reset = b && b.resetInSec != null ? `reset ${countdown(b.resetInSec)}` : t('uncalib');
+  const unitsStr = (b?.units ?? null) == null ? '—' : b.units.toLocaleString();
+  const budget = b && b.budget ? `${unitsStr} / ${b.budget.toLocaleString()} ${t('units')}` : `${unitsStr} ${t('units')}`;
   const forecast = b && b.forecast && b.forecast.willExceed ? b.forecast.etaText : null;
   const forecastClass = forecast && pct >= 75 ? 'forecast-warn' : 'forecast-ok';
   return `<div class="lbar">
@@ -133,11 +210,11 @@ function renderGlanceStrip(usage, providers) {
     }
     items.push(gchip(c.name, dot, val, vcls, pct, '#prov-' + c.id));
   }
-  $('gstrip').innerHTML = items.join('') || '<span class="muted">kaynak yok</span>';
-  $('gstrip-count').textContent = items.length + ' kaynak';
+  $('gstrip').innerHTML = items.join('') || `<span class="muted">${t('noData')}</span>`;
+  $('gstrip-count').textContent = items.length + ' ' + t('provider');
   document.querySelectorAll('#gstrip .gchip').forEach(b => b.addEventListener('click', () => {
-    const t = document.querySelector(b.getAttribute('data-target'));
-    if (t) t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const target = document.querySelector(b.getAttribute('data-target'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
 }
 
@@ -180,19 +257,19 @@ function renderProviders(list) {
 
   $('provider-cards').innerHTML = list.map(c => {
     if (c.status === 'error')
-      return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || 'erişilemedi')}</div>`);
+      return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || t('unreachable'))}</div>`);
 
     if (c.kind === 'spend') {           // OpenRouter/OpenAI — gerçek $ (bazıları sadece bakiye)
       const sp = c.spend || {}, bal = c.balance, lim = c.limit;
       const cells = [];
-      if (sp.today != null) cells.push(`<div><span class="pl">Bugün</span><b>${fmtUsd(sp.today)}</b></div>`);
-      if (sp.month != null) cells.push(`<div><span class="pl">Bu ay</span><b class="gold">${fmtUsd(sp.month)}</b></div>`);
-      if (bal) cells.push(`<div><span class="pl">Kalan kredi</span><b>${fmtUsd(bal.remaining)}</b></div>`);
-      if (!cells.length) cells.push(`<div><span class="pl muted">veri yok</span><b>—</b></div>`);
+      if (sp.today != null) cells.push(`<div><span class="pl">${t('today')}</span><b>${fmtUsd(sp.today)}</b></div>`);
+      if (sp.month != null) cells.push(`<div><span class="pl">${t('month')}</span><b class="gold">${fmtUsd(sp.month)}</b></div>`);
+      if (bal) cells.push(`<div><span class="pl">${t('credit')}</span><b>${fmtUsd(bal.remaining)}</b></div>`);
+      if (!cells.length) cells.push(`<div><span class="pl muted">${t('noData')}</span><b>—</b></div>`);
       let body = `<div class="prov-stats">${cells.join('')}</div>`;
       if (lim) {
         const cls = lim.pct == null ? 'none' : lim.pct >= 90 ? 'crit' : lim.pct >= 75 ? 'warn' : 'ok';
-        body += `<div class="prov-limit"><div class="pl-row"><span>Günlük limit (${esc(lim.reset || '')})</span>
+        body += `<div class="prov-limit"><div class="pl-row"><span>${t('dailyLimit')} (${esc(lim.reset || '')})</span>
           <span>${fmtUsd(lim.used)} / ${fmtUsd(lim.amount)}</span></div>${provMiniBar(lim.pct, cls)}</div>`;
       }
       return provShell(c, body);
@@ -204,30 +281,30 @@ function renderProviders(list) {
       return provShell(c, `<div class="prov-stats">
         <div><span class="pl">${c.windowDays}g token</span><b>${fmtTok(tk.total)}</b></div>
         <div><span class="pl">≈ maliyet <span class="src ${srcCls}">${esc(c.usdSource)}</span></span><b class="gold">${fmtUsd(tot.usd)}</b></div>
-        <div><span class="pl">Bugün</span><b>${fmtTok(td.tokens)} · ${fmtUsd(td.usd)}</b></div>
+        <div><span class="pl">${t('today')}</span><b>${fmtTok(td.tokens)} · ${fmtUsd(td.usd)}</b></div>
       </div>
       ${provSpark(c.byDay, true)}
-      <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} oturum · ${esc(c.auth)}</span></div>`);
+      <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} ${t('session')} · ${esc(c.auth)}</span></div>`);
     }
 
     if (c.kind === 'local') {           // Ollama — yerel
       if (c.status === 'offline')
-        return provShell(c, `<div class="prov-err off">● servis kapalı — <code>ollama serve</code></div>`);
+        return provShell(c, `<div class="prov-err off">● ${t('offline')} — <code>ollama serve</code></div>`);
       const run = (c.running || []).length;
       return provShell(c, `<div class="prov-stats">
-        <div><span class="pl">Kurulu model</span><b>${c.modelCount || 0}</b></div>
-        <div><span class="pl">Çalışan</span><b class="${run ? 'gold' : ''}">${run}</b></div>
+        <div><span class="pl">${t('modelCount')}</span><b>${c.modelCount || 0}</b></div>
+        <div><span class="pl">${t('used')}</span><b class="${run ? 'gold' : ''}">${run}</b></div>
       </div>
       <div class="prov-models">${(c.models || []).slice(0, 4).map(m =>
-        `<span class="chip">${esc(m.name)} <small>${fmtSize(m.size)}</small></span>`).join('') || '<span class="muted">model yok</span>'}</div>`);
+        `<span class="chip">${esc(m.name)} <small>${fmtSize(m.size)}</small></span>`).join('') || `<span class="muted">${t('noData')}</span>`}</div>`);
     }
 
     if (c.kind === 'quota') {           // ElevenLabs — karakter kotası ($ yok)
       const q = c.quota || {};
       const cls = q.pct == null ? 'none' : q.pct >= 90 ? 'crit' : q.pct >= 75 ? 'warn' : 'ok';
-      const unit = q.unit || 'birim';
+      const unit = q.unit || t('units');
       let body = `<div class="prov-stats">
-        <div><span class="pl">Kullanılan</span><b>${fmtCount(q.used)}</b></div>
+        <div><span class="pl">${t('used')}</span><b>${fmtCount(q.used)}</b></div>
         <div><span class="pl">Kalan</span><b class="gold">${fmtCount(q.remaining)}</b></div>
       </div>
       <div class="prov-limit"><div class="pl-row"><span>Aylık ${esc(unit)} (${q.pct == null ? '—' : q.pct + '%'})</span>
@@ -268,7 +345,7 @@ async function submitCalib() {
     const r = await getJSON('/api/calibrate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (r.ok) { msg.textContent = '✓ kalibre edildi'; refresh(); }
+    if (r.ok) { msg.textContent = t('calibrated'); refresh(); }
     else { msg.textContent = '✗ ' + (r.error || 'hata'); }
   } catch (e) { msg.textContent = '✗ ' + e.message; }
 }
@@ -295,6 +372,7 @@ async function refresh() {
   } catch (e) {
     $('updated').textContent = 'hata: ' + e.message;
   }
+  updateI18n();
 }
 
 // Set body class based on widget mode
@@ -424,6 +502,27 @@ async function submitViewConfig() {
 // ── EVENT LISTENERS & STARTUP ────────────────────────────────
 $('refresh').addEventListener('click', () => refresh().catch(e => console.error('refresh failed:', e)));
 $('calib-save').addEventListener('click', submitCalib);
+
+// Lang switcher
+const langBtn = $('lang');
+if (langBtn) {
+  langBtn.textContent = LANG === 'tr' ? 'EN' : 'TR';
+  langBtn.addEventListener('click', () => {
+    LANG = LANG === 'tr' ? 'en' : 'tr';
+    langBtn.textContent = LANG === 'tr' ? 'EN' : 'TR';
+    localStorage.setItem('ut_lang_v1', LANG);
+    updateI18n();
+    refresh();
+  });
+}
+
+// i18n startup
+updateI18n();
+
+// footer address
+const footerAddr = $('footer-addr');
+if (footerAddr) footerAddr.textContent = location.host;
+
 refresh();
 loadViewConfig();
 setInterval(() => refresh().catch(e => console.error('refresh failed:', e)), 30000);   // 30sn'de bir tazele
