@@ -10,6 +10,7 @@ Dizin/dosya yoksa → None (kart açılmaz). Var ama parse yoksa → status='nod
 mtime-cache. ⚠️ Alan adları ADAY — canlı doğrulanacak.
 """
 import json
+import sys
 import threading
 import time
 from datetime import datetime
@@ -53,13 +54,14 @@ def _parse(days: int) -> dict:
     models = {}
     try:
         with LOG_PATH.open(encoding='utf-8') as fh:
-            for line in fh:
+            for line_no, line in enumerate(fh, 1):
                 line = line.strip()
                 if not line:
                     continue
                 try:
                     o = json.loads(line)
-                except ValueError:
+                except ValueError as e:
+                    print(f'Provider {PROVIDER_ID}: Bozuk JSON satırı {LOG_PATH}:{line_no}: {e}', file=sys.stderr)
                     continue
                 props = o.get('properties') or o
                 ts = o.get('time') or o.get('timestamp')
@@ -121,8 +123,8 @@ def collect(days: int = 30) -> dict:
     with _LOCK:
         if _CACHE and _CACHE[0] == st.st_mtime and _CACHE[1] == st.st_size and (now - _CACHE[3]) < CACHE_TTL:
             return _CACHE[2]
-    card = _parse(days)
-    with _LOCK:
+        # Cache miss → _parse() işini de lock içinde yap, çift-fetch'i önle (MNT-F002)
+        card = _parse(days)
         _CACHE = (st.st_mtime, st.st_size, card, now)
     return card
 

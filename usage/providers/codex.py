@@ -13,6 +13,7 @@ Dosya-mtime cache'li. Rollout dizini yoksa → None (kart açılmaz).
 """
 import json
 import re
+import sys
 import threading
 import time
 from datetime import datetime
@@ -26,6 +27,10 @@ CODEX_DIR = Path.home() / '.codex'
 SESSIONS_DIR = CODEX_DIR / 'sessions'
 AUTH_PATH = CODEX_DIR / 'auth.json'
 
+# Büyük log dizininde asılmayı önlemek için tarama sınırı (ledger: python/executor-with-timeout-yalani)
+MAX_FILES = 40
+MAX_LINES_PER_FILE = 20000
+
 _LOCK = threading.Lock()
 _FILE_CACHE = {}         # {path: (mtime, size, [events])}
 _MODEL_RE = re.compile(r'"model"\s*:\s*"([^"]+)"')
@@ -36,7 +41,9 @@ def _parse_file(fp: Path):
     cur_model = ''
     try:
         with fp.open(encoding='utf-8') as fh:
-            for line in fh:
+            for line_idx, line in enumerate(fh):
+                if line_idx >= MAX_LINES_PER_FILE:
+                    break
                 if '"model"' in line:
                     m = _MODEL_RE.search(line)
                     if m:
@@ -45,7 +52,8 @@ def _parse_file(fp: Path):
                     continue
                 try:
                     o = json.loads(line)
-                except ValueError:
+                except ValueError as e:
+                    print(f'Provider {PROVIDER_ID}: Bozuk JSON satırı {fp}:{line_idx}: {e}', file=sys.stderr)
                     continue
                 payload = o.get('payload')
                 if not isinstance(payload, dict) or payload.get('type') != 'token_count':
@@ -84,6 +92,8 @@ def _scan(since_ms: int):
     files = 0
     cutoff = since_ms / 1000 - 86400
     for fp in SESSIONS_DIR.rglob('rollout-*.jsonl'):
+        if files >= MAX_FILES:
+            break
         try:
             st = fp.stat()
         except OSError:

@@ -10,6 +10,7 @@ Dizin yoksa → None. Var ama parse yoksa → status='nodata'. mtime-cache.
 ⚠️ $ yok (Continue token verir, maliyet vermez) → 'tokens' kartı, usd=0. Alanlar ADAY.
 """
 import json
+import sys
 import threading
 import time
 from pathlib import Path
@@ -18,6 +19,10 @@ PROVIDER_ID = 'continue'
 PROVIDER_NAME = 'Continue.dev'
 DATA_DIR = Path.home() / '.continue' / 'dev_data'
 CACHE_TTL = 60.0
+
+# Büyük log dizininde asılmayı önlemek için tarama sınırı (ledger: python/executor-with-timeout-yalani)
+MAX_FILES = 40
+MAX_LINES_PER_FILE = 20000
 
 _LOCK = threading.Lock()
 _CACHE = None            # (fingerprint, card, ts)
@@ -62,16 +67,23 @@ def _parse(days: int) -> dict:
             'auth': 'yerel-log', 'usdSource': 'catalog'}
     prompt = gen = 0
     models = {}
+    files_scanned = 0
     for fp in _token_files():
+        if files_scanned >= MAX_FILES:
+            break
+        files_scanned += 1
         try:
             with fp.open(encoding='utf-8') as fh:
-                for line in fh:
+                for line_idx, line in enumerate(fh):
+                    if line_idx >= MAX_LINES_PER_FILE:
+                        break
                     line = line.strip()
                     if not line:
                         continue
                     try:
                         o = json.loads(line)
-                    except ValueError:
+                    except ValueError as e:
+                        print(f'Provider {PROVIDER_ID}: Bozuk JSON satırı {fp}:{line_idx}: {e}', file=sys.stderr)
                         continue
                     if not isinstance(o, dict):
                         continue
@@ -102,16 +114,16 @@ def _parse(days: int) -> dict:
 
 def collect(days: int = 30) -> dict:
     global _CACHE
-    files = _token_files()
     if not DATA_DIR.exists():
         return None
+    files = _token_files()
     fp = _fingerprint(files)
     now = time.time()
     with _LOCK:
         if _CACHE and _CACHE[0] == fp and (now - _CACHE[2]) < CACHE_TTL:
             return _CACHE[1]
-    card = _parse(days)
-    with _LOCK:
+        # Cache miss → _parse() işini de lock içinde yap, çift-fetch'i önle (MNT-F002)
+        card = _parse(days)
         _CACHE = (fp, card, now)
     return card
 
