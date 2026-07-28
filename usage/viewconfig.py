@@ -15,7 +15,6 @@ Backend TEK KAYNAK: `view_config.json` dosyası (proje-yerel, gitignore'da).
 stdlib-only, atomik yazma (tmp+rename), path-safe.
 """
 import json
-import os
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / 'view_config.json'

@@ -494,7 +494,8 @@ def compute_spend(days: int = 30) -> dict:
             estimated.add(mk)
 
     model_list = sorted(
-        ({'model': k, **v, 'usd': round(v['usd'], 4)} for k, v in by_model.items()),
+        ({'model': k, **v, 'usd': round(v['usd'], 4)} for k, v in by_model.items()
+         if pricing._norm(k) not in ('', '<synthetic>', 'synthetic')),
         key=lambda x: x['usd'], reverse=True,
     )
     day_list = [{'day': d, 'usd': round(by_day.get(d, 0.0), 4)}
@@ -530,8 +531,11 @@ def usage_wire() -> dict:
     def limit_bar(b):
         if not b:
             return None
-        return {'pct': b.get('pct'), 'used': b.get('units'), 'budget': b.get('budget'),
-                'calibSuspect': b.get('calibSuspect'),
+        # 'used' = v0.2.0'da yayınlanan interop alan adı — dış tüketiciler (eww/tray/kullanıcı
+        # scriptleri) buna bağlı, kaldırma. 'units' /api/usage ile aynı adı taşısın diye EK
+        # olarak veriliyor; ikisi aynı değer. Tek ada indirme v0.3.0 (kırıcı) işi.
+        return {'pct': b.get('pct'), 'used': b.get('units'), 'units': b.get('units'),
+                'budget': b.get('budget'), 'calibSuspect': b.get('calibSuspect'),
                 'resetAtMs': b.get('resetAtMs'), 'resetInSec': b.get('resetInSec')}
 
     claude = {

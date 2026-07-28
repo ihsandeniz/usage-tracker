@@ -11,7 +11,6 @@ Veri kaynakları:
 Determinizm: aynı çalıştırmada aynı sonuç. Math.random() yok, timestamp-bağımlı hesaplamalar yok.
 Schema: engine fonksiyonlarıyla AYNI yapı ve alan adları.
 """
-import json
 import time
 from datetime import datetime, timedelta
 
@@ -389,7 +388,8 @@ def usage_wire() -> dict:
             return None
         return {
             'pct': b.get('pct'),
-            'used': b.get('units'),
+            'used': b.get('units'),      # gerçek usage_wire() ile aynı sözleşme
+            'units': b.get('units'),
             'budget': b.get('budget'),
             'resetAtMs': b.get('resetAtMs'),
             'resetInSec': b.get('resetInSec'),
