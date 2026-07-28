@@ -13,7 +13,7 @@ const I18N = {
     overview: 'Overview', provider: 'provider', modelCount: 'Installed model', used: 'Used',
     credit: 'Remaining credit', session: 'session', unreachable: 'unreachable',
     noData: 'no data', offline: 'service offline', uncalib: 'not calibrated',
-    units: 'units', calibrated: '✓ calibrated',
+    units: 'units', calibrated: '✓ calibrated', updated: 'updated', noModelData: 'no data',
     source: 'Source', refresh: 'Refresh', otherProviders: 'Other Providers',
     cSessPct: 'Session %', cSessReset: 'Session reset (HH:MM)',
     cWeekPct: 'Weekly (all) %', cWeekReset: 'Weekly reset (day+hour)',
@@ -32,7 +32,7 @@ const I18N = {
     provider: 'kaynak', modelCount: 'Kurulu model', used: 'Kullanılan',
     credit: 'Kalan kredi', session: 'oturum', unreachable: 'erişilemedi',
     noData: 'kaynak yok', offline: 'servis kapalı', uncalib: 'kalibre değil',
-    units: 'birim', calibrated: '✓ kalibre edildi',
+    units: 'birim', calibrated: '✓ kalibre edildi', updated: 'güncellendi', noModelData: 'veri yok',
     source: 'Kaynak', refresh: 'Yenile', otherProviders: 'Diğer Sağlayıcılar',
     cSessPct: 'Oturum %', cSessReset: 'Oturum reset (saat:dk)',
     cWeekPct: 'Haftalık (tüm) %', cWeekReset: 'Haftalık reset (gün+saat)',
@@ -93,7 +93,7 @@ function renderSpend(s) {
   $('s-today').textContent = fmtUsd(s.today);
   $('s-yday').textContent = fmtUsd(s.yesterday);
   $('s-total').textContent = fmtUsd(s.total);
-  $('updated').textContent = 'güncellendi ' + s.updated;
+  $('updated').textContent = t('updated') + ' ' + s.updated;
 
   const flag = $('price-flag');
   if (s.priceComplete) { flag.textContent = '✓ tam fiyat'; flag.className = 'pill good'; }
@@ -119,7 +119,7 @@ function renderSpend(s) {
       <td class="r">${fmtTok(tok.output)} / ${fmtTok(tok.input)} / ${fmtTok((tok.cache_read || 0) + (tok.cache_write || 0))}</td>
       <td class="r usd">${fmtUsd(m.usd)}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="4" class="muted">veri yok</td></tr>';
+  }).join('') || `<tr><td colspan="4" class="muted">${t('noModelData')}</td></tr>`;
 
   $('spend-note').textContent = s.note || '';
 }
@@ -518,6 +518,14 @@ if (langBtn) {
 
 // i18n startup
 updateI18n();
+
+// version badge — sunucunun Server başlığından; elle yazılan sürüm bayatlıyor (CANLI-07)
+fetch('/api/usage', { method: 'GET' }).then(r => {
+  const sv = r.headers.get('Server') || '';
+  const m = sv.match(/usage-tracker\/(\S+)/);
+  const el = $('ver');
+  if (el) el.textContent = m ? 'v' + m[1] : '';
+}).catch(() => {});
 
 // footer address
 const footerAddr = $('footer-addr');

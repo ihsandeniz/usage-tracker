@@ -22,6 +22,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import engine, viewconfig   # noqa: E402
 
+VERSION = '0.2.1'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
 WEBD = Path(__file__).resolve().parent / 'web'
@@ -40,7 +41,7 @@ MIME = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; cha
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'usage-tracker/0.2'
+    server_version = f'usage-tracker/{VERSION}'
 
     def log_message(self, fmt, *args):          # sessiz — stderr'i kirletme
         pass
