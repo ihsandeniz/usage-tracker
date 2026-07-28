@@ -17,8 +17,18 @@ _env_url="${USAGE_URL:-}"          # env wins over the config file, not the othe
 [ -n "$_env_url" ] && USAGE_URL="$_env_url"
 URL="${USAGE_URL:-http://127.0.0.1:8770}/v1/usage"
 
-json="$(curl -s --max-time 3 "$URL" 2>/dev/null)"
-if [ -z "$json" ]; then
+response="$(curl -s --max-time 3 -w '\n%{http_code}' "$URL" 2>/dev/null)"
+http_code="$(echo "$response" | tail -n1)"
+json="$(echo "$response" | head -n-1)"
+
+# Status 200 değilse veya boş yanıt → offline
+if [ "$http_code" != "200" ] || [ -z "$json" ]; then
+  printf '{"text":"○ —","tooltip":"usage-tracker offline (%s)","class":"off"}\n' "$URL"
+  exit 0
+fi
+
+# JSON geçerliliğini doğrula (bozuk JSON/HTML hata sayfası) — jq -e . fail → offline
+if ! echo "$json" | jq -e . >/dev/null 2>&1; then
   printf '{"text":"○ —","tooltip":"usage-tracker offline (%s)","class":"off"}\n' "$URL"
   exit 0
 fi

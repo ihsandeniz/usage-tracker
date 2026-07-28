@@ -113,8 +113,17 @@ notify() {
 # tek kontrol ve bildiriyi yönet
 check_once() {
   # server kapalıysa sessiz çık
-  json="$(curl -s --max-time 3 "$URL" 2>/dev/null)"
-  if [ -z "$json" ]; then
+  response="$(curl -s --max-time 3 -w '\n%{http_code}' "$URL" 2>/dev/null)"
+  http_code="$(echo "$response" | tail -n1)"
+  json="$(echo "$response" | head -n-1)"
+
+  # Status 200 değilse veya boş yanıt → sessiz çık
+  if [ "$http_code" != "200" ] || [ -z "$json" ]; then
+    return 0
+  fi
+
+  # JSON geçerliliğini doğrula (bozuk JSON/HTML hata sayfası) → sessiz çık
+  if ! echo "$json" | jq -e . >/dev/null 2>&1; then
     return 0
   fi
 
