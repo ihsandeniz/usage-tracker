@@ -27,6 +27,7 @@ import re
 import sys
 
 MODULE = "custom/usage"
+OWN_SCRIPT = "waybar-usage.sh"   # our feeder — how `remove` tells our module from the user's
 
 
 # ── tokenizer ───────────────────────────────────────────────────────────────
@@ -227,6 +228,16 @@ def op_remove(text: str):
     if not bar or MODULE not in bar[0]:
         return None, "already-absent"
 
+    # Ownership: does this module run OUR feeder? A user may have written their own
+    # "custom/usage" module with their own script — removing that is what CANLI-03 was
+    # about. We check exec instead of writing a marker key into the user's config:
+    # nothing foreign is added to waybar's JSON, and modules added by older versions
+    # (which had no marker) are still recognised correctly.
+    module_def = bar[0].get(MODULE)
+    exec_val = module_def.get("exec") if isinstance(module_def, dict) else None
+    if not isinstance(exec_val, str) or OWN_SCRIPT not in exec_val:
+        return None, "foreign-module"
+
     toks = tokenize(text)
     _, key_depth = bar_open(toks)
     cuts = []
@@ -318,7 +329,7 @@ def main() -> int:
         return 3
 
     if out is None:
-        if info in ("already-present", "already-absent"):
+        if info in ("already-present", "already-absent", "foreign-module"):
             print(info)
             return 2
         print(info, file=sys.stderr)

@@ -362,6 +362,8 @@ probe_all() {
 # ACTIONS — the only code that changes anything. Both faces call these.
 # ════════════════════════════════════════════════════════════════════════════
 CHANGED=0
+CHANGED_CONFIG=0    # waybar config file changed
+CHANGED_STYLE=0     # waybar style.css changed
 ACT_RC=0
 ACT_SNIPPET=""
 ENV_EDIT_N=0
@@ -415,7 +417,7 @@ act_waybar_style() { # colours — plain append, idempotent
   backup "$style"
   mkdir -p "$(dirname "$style")"
   printf '%s\n' "$STYLE_BLOCK" >>"$style"
-  ok "badge colours added to style.css"; CHANGED=1
+  ok "badge colours added to style.css"; CHANGED_STYLE=1
 }
 
 act_waybar_add() { # sets ACT_RC: 0 added · 2 already · 3 needs manual paste · 1 error
@@ -427,7 +429,7 @@ act_waybar_add() { # sets ACT_RC: 0 added · 2 already · 3 needs manual paste �
   if python3 "$WB_EDIT" check --config "$wbar" >/dev/null 2>&1; then
     ok "badge already configured — nothing to do"; ACT_RC=2; return 0
   fi
-  act_waybar_style
+  act_waybar_style  # adds style.css if needed, does not affect CHANGED
   backup "$wbar"
   err="$(python3 "$WB_EDIT" add --config "$wbar" \
            --exec "$SURFACE/waybar-usage.sh" \
@@ -435,7 +437,7 @@ act_waybar_add() { # sets ACT_RC: 0 added · 2 already · 3 needs manual paste �
            --list "$O_LIST" 2>&1)"; rc=$?
   case "$rc" in
     0) ok "badge added to $(basename "$wbar") (comments and formatting preserved)"
-       CHANGED=1; ACT_RC=0 ;;
+       CHANGED_CONFIG=1; CHANGED=1; ACT_RC=0 ;;
     2) ok "already present"; ACT_RC=2 ;;
     *) # We could not be sure → do not guess. Restore and hand it over.
        [ -f "$wbar$BAK_SUFFIX" ] && cp -p "$wbar$BAK_SUFFIX" "$wbar"
@@ -447,19 +449,25 @@ act_waybar_add() { # sets ACT_RC: 0 added · 2 already · 3 needs manual paste �
 }
 
 act_waybar_remove() {
-  local wbar style
+  local wbar style err
   if ! wbar="$(find_waybar_config)"; then say "no waybar config — nothing to remove"; return 0; fi
   backup "$wbar"
-  python3 "$WB_EDIT" remove --config "$wbar" >/dev/null 2>&1
-  case $? in
-    0) ok "badge removed from $(basename "$wbar")"; CHANGED=1 ;;
-    2) say "badge wasn't in $(basename "$wbar")" ;;
+  err="$(python3 "$WB_EDIT" remove --config "$wbar" 2>&1)"; rc=$?
+  case $rc in
+    0) ok "badge removed from $(basename "$wbar")"; CHANGED_CONFIG=1; CHANGED=1 ;;
+    2) if printf '%s' "$err" | grep -q "foreign-module"; then
+         warn "the \"custom/usage\" module in $(basename "$wbar") runs a different script — we did not add it"
+         say "leaving it alone; to remove it yourself, delete that block by hand"
+         ACT_SNIPPET="$(waybar_snippet)"
+       else
+         say "badge wasn't in $(basename "$wbar")"
+       fi ;;
     *) warn "couldn't edit $(basename "$wbar") — remove the \"custom/usage\" block by hand" ;;
   esac
   style="$CFG/waybar/style.css"
   if [ -f "$style" ] && grep -q "usage-tracker badge" "$style"; then
     backup "$style"
-    python3 - "$style" <<'PY' && { ok "badge colours removed from style.css"; CHANGED=1; }
+    python3 - "$style" <<'PY' && { ok "badge colours removed from style.css"; CHANGED_STYLE=1; CHANGED=1; }
 import re, sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
@@ -730,6 +738,11 @@ if [ "$MACHINE" = 1 ]; then
       esac
       kv ok b "$([ "$ACT_OK" = 1 ] && echo true || echo false)"
       kv changed b "$([ "$CHANGED" = 1 ] && echo true || echo false)"
+      # For waybar step, also report per-file changes (backward compat: still use overall "changed")
+      if [ "$STEP" = waybar ]; then
+        kv changed_files.config b "$([ "$CHANGED_CONFIG" = 1 ] && echo true || echo false)"
+        kv changed_files.style b "$([ "$CHANGED_STYLE" = 1 ] && echo true || echo false)"
+      fi
       kv_flush; exit 0 ;;
 
     undo)
@@ -746,6 +759,11 @@ if [ "$MACHINE" = 1 ]; then
       esac
       kv ok b "$([ "$ACT_OK" = 1 ] && echo true || echo false)"
       kv changed b "$([ "$CHANGED" = 1 ] && echo true || echo false)"
+      # For waybar step, also report per-file changes (backward compat: still use overall "changed")
+      if [ "$STEP" = waybar ]; then
+        kv changed_files.config b "$([ "$CHANGED_CONFIG" = 1 ] && echo true || echo false)"
+        kv changed_files.style b "$([ "$CHANGED_STYLE" = 1 ] && echo true || echo false)"
+      fi
       kv_flush; exit 0 ;;
   esac
 fi
