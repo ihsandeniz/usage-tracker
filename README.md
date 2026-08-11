@@ -204,6 +204,22 @@ Autostart (Hyprland): `exec-once = /ABS/PATH/surface/usage-widget open`.
 
 ## Configuration
 
+### Where your data lives
+
+Nothing is written into the installation directory — it may be read-only (a PyInstaller
+bundle, `Program Files`, `/usr/lib`, a container). Run `python3 -m usage.platform` to print
+the exact paths on your machine.
+
+| | Linux / BSD | Windows |
+|---|---|---|
+| view config | `~/.config/usage-tracker/` | `%APPDATA%\usage-tracker\` |
+| calibration, live cache | `~/.local/state/usage-tracker/` | `%LOCALAPPDATA%\usage-tracker\State\` |
+| fetched price catalogue | `~/.cache/usage-tracker/` | `%LOCALAPPDATA%\usage-tracker\Cache\` |
+
+`XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME` are honoured. Upgrading from an
+older version keeps working: a `usage_calib.json` or `view_config.json` sitting next to the
+code is still read, and the next save moves it. Nobody has to recalibrate.
+
 `surface/surface.conf` (created by `install.sh`, git-ignored — machine-specific):
 
 ```sh

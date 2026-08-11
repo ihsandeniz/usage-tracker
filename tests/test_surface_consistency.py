@@ -25,7 +25,7 @@ class Y6Thresholds(unittest.TestCase):
 
     def test_web_app_js_no_hardcoded_thresholds_in_crit_warn(self):
         """web/app.js'de hardcoded >= 90 / >= 75 arayması."""
-        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text()
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
 
         # barClass() fonksiyonu dışında hardcoded 90/75 bulma
         # barClass, renderLimits, renderProviders, renderGlance içinde özel kısaltma var, onları dışla
@@ -56,7 +56,7 @@ class Y6Thresholds(unittest.TestCase):
 
     def test_web_app_js_uses_thresholds_parameter(self):
         """barClass fonksiyonunun th parametresi kullanması."""
-        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text()
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
         # barClass'ta (th.crit ?? 90) ve (th.warn ?? 75) olmalı
         self.assertIn('function barClass(pct, th)', app_js)
         self.assertIn('(th.crit ?? 90)', app_js)
@@ -64,7 +64,7 @@ class Y6Thresholds(unittest.TestCase):
 
     def test_waybar_no_hardcoded_thresholds(self):
         """surface/waybar-usage.sh'de hardcoded 90/75 bulma."""
-        waybar_sh = (Path(__file__).parent.parent / 'surface' / 'waybar-usage.sh').read_text()
+        waybar_sh = (Path(__file__).parent.parent / 'surface' / 'waybar-usage.sh').read_text(encoding='utf-8')
 
         # jq tanımlarında >= 90 / >= 75 arayışı
         lines = waybar_sh.split('\n')
@@ -81,7 +81,7 @@ class Y6Thresholds(unittest.TestCase):
 
     def test_tray_py_no_hardcoded_thresholds(self):
         """surface/usage-tray.py'de hardcoded 90/75 bulma."""
-        tray_py = (Path(__file__).parent.parent / 'surface' / 'usage-tray.py').read_text()
+        tray_py = (Path(__file__).parent.parent / 'surface' / 'usage-tray.py').read_text(encoding='utf-8')
 
         lines = tray_py.split('\n')
         issues = []
@@ -171,21 +171,21 @@ class Y3Currency(unittest.TestCase):
 
     def test_web_app_js_fmtUsd_uses_currency_param(self):
         """fmtUsd fonksiyonunun currency parametresi kullanması."""
-        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text()
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
         # fmtUsd'nin currency parametresi olmalı
         self.assertIn('const fmtUsd = (n, currency', app_js,
             "fmtUsd currency parametresi almalı")
 
     def test_backend_sends_currency(self):
         """Backend'in currency alanı gönderip göndermediğini doğrula."""
-        engine_py = (Path(__file__).parent.parent / 'usage' / 'engine.py').read_text()
+        engine_py = (Path(__file__).parent.parent / 'usage' / 'engine.py').read_text(encoding='utf-8')
         # engine.py'de 'currency' alanı olmalı (provider veya spend içinde)
         self.assertIn("'currency'", engine_py,
             "engine.py currency alanı üretmeli")
 
     def test_web_app_js_providers_render_uses_currency(self):
         """app.js'de sağlayıcı kart render'ında currency okunmalı."""
-        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text()
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
         # sağlayıcı kartında fmtUsd çağrıları currency parametresi almalı
         self.assertIn('fmtUsd(lim.used, c.currency)', app_js,
             "Sağlayıcı limit line'ında currency kullanılmalı")
@@ -196,13 +196,13 @@ class PartialStatus(unittest.TestCase):
 
     def test_genlog_produces_truncated(self):
         """_genlog.py truncated alanı üretmeli (partial → tarama eksik)."""
-        genlog_py = (Path(__file__).parent.parent / 'usage' / 'providers' / '_genlog.py').read_text()
+        genlog_py = (Path(__file__).parent.parent / 'usage' / 'providers' / '_genlog.py').read_text(encoding='utf-8')
         self.assertIn("truncated", genlog_py,
             "_genlog.py truncated alanı üretmeli")
 
     def test_web_app_js_recognizes_partial(self):
         """app.js partial status'u tanımalı (sağlayıcı kartında)."""
-        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text()
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
         self.assertIn("c.status === 'partial'", app_js,
             "app.js partial durumu check etmeli")
 
@@ -241,7 +241,7 @@ class Y3CurrencyIntegration(unittest.TestCase):
         """Tray: DeepSeek CNY kartında ¥ sembolü gösterilmeli."""
         # Tray'de _summarize fonksiyonu CNY currency'yi ¥ ile gösteriyor mu kontrol et
         tray_path = Path(__file__).parent.parent / 'surface' / 'usage-tray.py'
-        tray_code = tray_path.read_text()
+        tray_code = tray_path.read_text(encoding='utf-8')
 
         # _num fonksiyonunda CNY eşlemesi olmalı
         self.assertIn("'CNY': '¥'", tray_code,
@@ -255,7 +255,7 @@ class Y3CurrencyIntegration(unittest.TestCase):
         """Waybar: DeepSeek CNY kartında ¥ sembolü gösterilmeli."""
         # Waybar script'inde CNY eşlemesi olmalı
         waybar_script = Path(__file__).parent.parent / 'surface' / 'waybar-usage.sh'
-        waybar_code = waybar_script.read_text()
+        waybar_code = waybar_script.read_text(encoding='utf-8')
 
         # money() fonksiyonunda CNY eşlemesi olmalı
         self.assertIn("elif curr == \"CNY\" then", waybar_code,

@@ -110,9 +110,10 @@ def _fetch_raw():
 
 
 def _disk_cache_path():
-    import os
-    base = os.environ.get('XDG_STATE_HOME') or str(Path.home() / '.local' / 'state')
-    return Path(base) / 'usage-tracker' / 'live-last-good.json'
+    # XDG'yi elle çözüyordu — Windows'ta $XDG_STATE_HOME yok ve `~/.local/state`
+    # oraya ait bir kural değil. Yol çözümlemesi artık tek yerde: usage/platform.py
+    from . import platform as _paths
+    return _paths.state_dir() / 'live-last-good.json'
 
 
 def _load_disk_cache():
@@ -135,11 +136,9 @@ def _load_disk_cache():
 
 def _save_disk_cache(at: float, res: dict):
     try:
-        p = _disk_cache_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix('.tmp')
-        tmp.write_text(json.dumps({'at': at, 'res': res}), encoding='utf-8')
-        tmp.replace(p)          # atomik — yarım dosya okunmasın
+        from . import platform as _paths
+        # atomik + benzersiz geçici ad: sabit '.tmp' iki eşzamanlı yazarı çarpıştırıyordu
+        _paths.atomic_write_text(_disk_cache_path(), json.dumps({'at': at, 'res': res}))
     except Exception:
         pass                    # cache lüks; yazamazsak sessizce devam
 

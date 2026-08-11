@@ -42,16 +42,14 @@ _CACHE = None                      # (key, loaded_dict)
 
 
 def user_cache_path() -> Path:
-    """Kendi çektiğimiz katalogun yeri. XDG'ye uyar; Windows'ta %LOCALAPPDATA%.
-       FAZ 2'de tüm yol çözümlemesi `usage/platform.py`'ye taşınacak — o zaman burası oraya bağlanır."""
+    """Kendi çektiğimiz katalogun yeri. Yol çözümlemesi `usage/platform.py`'de."""
     if _USER_CACHE_OVERRIDE is not None:
         return Path(_USER_CACHE_OVERRIDE)
     env = os.environ.get('USAGE_PRICES')
     if env:
         return Path(env).expanduser()
-    base = os.environ.get('XDG_CACHE_HOME') or os.environ.get('LOCALAPPDATA')
-    root = Path(base).expanduser() if base else Path.home() / '.cache'
-    return root / 'usage-tracker' / 'models_dev_prices.json'
+    from . import platform as _paths
+    return _paths.cache_dir() / 'models_dev_prices.json'
 
 
 def invalidate() -> None:
@@ -262,11 +260,9 @@ def _payload_from_remote(url: str) -> dict:
 def update(url: str = MODELS_DEV_URL) -> dict:
     """models.dev'den çek, kullanıcı cache'ine yaz. Döner: status()."""
     payload = _payload_from_remote(url)
-    dest = user_cache_path()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + f'.{os.getpid()}.tmp')
-    tmp.write_text(json.dumps(payload, separators=(',', ':'), sort_keys=True), encoding='utf-8')
-    tmp.replace(dest)
+    from . import platform as _paths
+    dest = _paths.atomic_write_text(
+        user_cache_path(), json.dumps(payload, separators=(',', ':'), sort_keys=True))
     invalidate()
     return status()
 

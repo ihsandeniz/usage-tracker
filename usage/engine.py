@@ -7,7 +7,8 @@ Kullanım motoru (bağımsız — Odak Paneli/dashboard'dan tamamen ayrı).
      bir kez girdiği gerçek /usage %'siyle çapalanır. 5s oturum + 7g haftalık pencere, reset geri sayım.
   2) HARCAMA (FAZ 1): aynı turn'lere models.dev gerçek fiyatı uygulanır → Today/Yesterday/30g $ + per-model.
 
-Kaynak dosyalar SADECE OKUNUR. Kalibrasyon proje-yerel usage_calib.json'da. Stdlib-only.
+Kaynak dosyalar SADECE OKUNUR. Kalibrasyon kullanıcının state dizininde
+(usage/platform.py; eski sürümlerin kod yanına yazdığı dosya da okunmaya devam eder). Stdlib-only.
 """
 import json
 import os
@@ -19,9 +20,15 @@ from pathlib import Path
 
 from . import pricing
 from . import live
+from . import platform as _paths
 
 CLAUDE_PROJECTS_DIR  = Path.home() / '.claude' / 'projects'
-CALIB_PATH           = Path(__file__).resolve().parent.parent / 'usage_calib.json'
+# Kalibrasyon kullanıcının verisidir, kurulumun değil: kod salt-okunur bir yerde
+# durabilir (PyInstaller, Program Files, /usr/lib). Eski sürümlerin kodun yanına
+# yazdığı dosya, yenisi oluşana kadar okunmaya devam eder — kimse kalibrasyonunu
+# kaybetmez. Ayrıntı: usage/platform.py
+CALIB_PATH           = _paths.state_dir() / 'usage_calib.json'
+LEGACY_CALIB_PATH    = Path(__file__).resolve().parent.parent / 'usage_calib.json'
 USAGE_SESSION_WINDOW = 5 * 3600            # sn — 5 saatlik oturum limiti
 USAGE_WEEKLY_WINDOW  = 7 * 24 * 3600       # sn — haftalık limit
 # Kalibrasyondan gelen yüzde bunu aşarsa bütçe tahmini bayat/yanlış demektir —
@@ -142,20 +149,21 @@ def _scan_turns(since_ms: int):
 
 # ── kalibrasyon dosyası ──────────────────────────────────────────────────────
 def _load_calib() -> dict:
-    if not CALIB_PATH.exists():
+    path = _paths.pick_existing(CALIB_PATH, LEGACY_CALIB_PATH)
+    if not path.exists():
         return {}
     try:
-        d = json.loads(CALIB_PATH.read_text(encoding='utf-8'))
+        d = json.loads(path.read_text(encoding='utf-8'))
         return d if isinstance(d, dict) else {}
     except Exception:
         return {}
 
 
 def _save_calib(d: dict) -> bool:
+    # Okuma eski konumu da kabul eder, yazma her zaman yeni konuma gider — göç
+    # kullanıcı bir şey yapmadan, ilk kaydetmede kendiliğinden tamamlanır.
     try:
-        tmp = CALIB_PATH.with_suffix('.tmp')
-        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding='utf-8')
-        tmp.replace(CALIB_PATH)
+        _paths.atomic_write_text(CALIB_PATH, json.dumps(d, ensure_ascii=False, indent=2))
         return True
     except Exception:
         return False

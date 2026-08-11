@@ -3,7 +3,8 @@
 FAZ 4a: Veri Seçim Katmanı — Kullanıcı hangi sağlayıcıların panelde/waybar'da/widget'ta
 görüneceğini seçebilsin.
 
-Backend TEK KAYNAK: `view_config.json` dosyası (proje-yerel, gitignore'da).
+Backend TEK KAYNAK: `view_config.json` — kullanıcının config dizininde
+(usage/platform.py). Eski sürümlerin kod yanına yazdığı dosya da okunur.
 Şema: {"hidden_providers": ["provider_id", ...]}
   — Liste gizlenen sağlayıcıları tutar
   — Varsayılan: boş liste = hepsi görünür
@@ -17,7 +18,12 @@ stdlib-only, atomik yazma (tmp+rename), path-safe.
 import json
 from pathlib import Path
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / 'view_config.json'
+from . import platform as _paths
+
+# Kullanıcının bilerek yaptığı seçim (hangi kartlar gizli) → config dizini.
+# Eski sürümlerin kodun yanına yazdığı dosya, yenisi oluşana kadar okunur.
+CONFIG_PATH = _paths.config_dir() / 'view_config.json'
+LEGACY_CONFIG_PATH = Path(__file__).resolve().parent.parent / 'view_config.json'
 
 
 def get_config() -> dict:
@@ -27,10 +33,11 @@ def get_config() -> dict:
     Returns:
         dict: {"hidden_providers": [...]} — her zaman valid dict
     """
-    if not CONFIG_PATH.exists():
+    path = _paths.pick_existing(CONFIG_PATH, LEGACY_CONFIG_PATH)
+    if not path.exists():
         return {"hidden_providers": []}
     try:
-        content = CONFIG_PATH.read_text(encoding='utf-8')
+        content = path.read_text(encoding='utf-8')
         cfg = json.loads(content)
         if not isinstance(cfg, dict):
             return {"hidden_providers": []}
@@ -58,9 +65,8 @@ def save_config(cfg: dict) -> bool:
         return False
 
     try:
-        tmp = CONFIG_PATH.with_suffix('.tmp')
-        tmp.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
-        tmp.replace(CONFIG_PATH)
+        # Yazma her zaman yeni konuma — göç ilk kaydetmede kendiliğinden tamamlanır.
+        _paths.atomic_write_text(CONFIG_PATH, json.dumps(cfg, ensure_ascii=False, indent=2))
         return True
     except Exception:
         return False
