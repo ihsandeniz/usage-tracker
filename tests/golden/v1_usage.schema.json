@@ -1,0 +1,164 @@
+{
+  "anyAdapterCard": [
+    {
+      "auth": "string",
+      "balance": {
+        "remaining": "number"
+      },
+      "byDay": [
+        {
+          "day": "string",
+          "usd": "number"
+        }
+      ],
+      "byModel": [
+        {
+          "model": "string",
+          "short": "string",
+          "usd": "number"
+        }
+      ],
+      "currency": "string",
+      "error": "string",
+      "id": "string",
+      "kind": "string",
+      "limit": {
+        "amount": "number",
+        "pct": "number",
+        "reset": "string",
+        "used": "number"
+      },
+      "modelCount": "number",
+      "models": [
+        {
+          "name": "string",
+          "size": "null"
+        }
+      ],
+      "name": "string",
+      "note": "string",
+      "quota": {
+        "limit": "number",
+        "pct": "number",
+        "remaining": "number",
+        "reset": "number",
+        "unit": "string",
+        "used": "number"
+      },
+      "running": [
+        {
+          "name": "string"
+        }
+      ],
+      "sessions": "number",
+      "spend": {
+        "month": "number",
+        "today": "number"
+      },
+      "status": "string",
+      "tier": "string",
+      "today": {
+        "tokens": "number",
+        "usd": "number"
+      },
+      "tokens": {
+        "input": "number",
+        "output": "number",
+        "total": "number"
+      },
+      "total": {
+        "tokens": "number",
+        "usd": "number"
+      },
+      "updated": "string",
+      "usdSource": "string",
+      "windowDays": "number"
+    }
+  ],
+  "claude": {
+    "calibrated": "bool",
+    "id": "string",
+    "limits": {
+      "session": {
+        "budget": "number",
+        "forecast": {
+          "etaMs": "null",
+          "etaText": "null",
+          "willExceed": "bool"
+        },
+        "pct": "number",
+        "resetAtMs": "number",
+        "resetInSec": "number",
+        "units": "number",
+        "used": "number"
+      },
+      "thresholds": {
+        "crit": "number",
+        "warn": "number"
+      },
+      "weekly": {
+        "budget": "number",
+        "forecast": {
+          "etaMs": "number",
+          "etaText": "string",
+          "willExceed": "bool"
+        },
+        "pct": "number",
+        "resetAtMs": "number",
+        "resetInSec": "number",
+        "units": "number",
+        "used": "number"
+      },
+      "weeklyModel": {
+        "budget": "number",
+        "forecast": {
+          "etaMs": "null",
+          "etaText": "null",
+          "willExceed": "bool"
+        },
+        "name": "string",
+        "pct": "number",
+        "resetAtMs": "number",
+        "resetInSec": "number",
+        "units": "number",
+        "used": "number"
+      }
+    },
+    "live": {
+      "cached": "bool",
+      "error": "string",
+      "ok": "bool",
+      "rateLimitTier": "null",
+      "rateLimited": "bool",
+      "stale": "bool"
+    },
+    "name": "string",
+    "spend": {
+      "byModel": [
+        {
+          "model": "string",
+          "short": "string",
+          "source": "string",
+          "usd": "number"
+        }
+      ],
+      "catalog": "null",
+      "currency": "string",
+      "estimatedModels": [],
+      "last30d": "number",
+      "priceComplete": "bool",
+      "today": "number",
+      "unknownPriceModels": [],
+      "yesterday": "number"
+    }
+  },
+  "wire": {
+    "generatedAt": "string",
+    "generatedAtMs": "number",
+    "schema": "string",
+    "thresholds": {
+      "crit": "number",
+      "warn": "number"
+    }
+  }
+}
