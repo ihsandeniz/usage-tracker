@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-Novita AI adaptörü — kredi/bakiye (OpenRouter deseni). (FAZ 4c — ADAY)
+ENDPOINT ÖLÇÜMÜ: 2026-08-11'de kimliksiz yoklandı: /v3/user → 400 (var). /api/v1/user/balance ve /v1/user → 404 (yok), kaldırıldı.
 
-⚠️ Endpoint ADAY: canlı key ile doğrulanacak. Defansif parse (bilinen bakiye alanları).
+Novita AI adaptörü — kredi/bakiye (OpenRouter deseni).
+
+Uç VAR (ölçüldü). ŞEMA hâlâ doğrulanmadı — anahtar yok, yanıtın içindeki alan adları
+görülmedi. Tutar `_money.pick_amount` ile dar taranır; tanınmazsa rakam gösterilmez.
   Denenen: GET https://api.novita.ai/v3/user · /api/v1/user/balance
 
 Key: $NOVITA_API_KEY. Yoksa → None. 90s cache.
@@ -14,6 +17,8 @@ import time
 import urllib.error
 import urllib.request
 
+from . import _money
+
 PROVIDER_ID = 'novita'
 PROVIDER_NAME = 'Novita AI'
 BASE = 'https://api.novita.ai'
@@ -21,7 +26,6 @@ CACHE_TTL = 90.0
 
 _LOCK = threading.Lock()
 _CACHE = None
-_BALANCE_FIELDS = ('balance', 'credit', 'credits', 'credit_balance', 'remaining', 'available')
 
 
 def _key():
@@ -38,21 +42,6 @@ def _get(path: str, key: str):
         return json.load(r)
 
 
-def _dig(obj, fields):
-    if isinstance(obj, dict):
-        for f in fields:
-            if f in obj:
-                try:
-                    return float(obj[f])
-                except (TypeError, ValueError):
-                    pass
-        for v in obj.values():
-            r = _dig(v, fields)
-            if r is not None:
-                return r
-    return None
-
-
 def _build(days: int) -> dict:
     key = _key()
     if not key:
@@ -60,7 +49,7 @@ def _build(days: int) -> dict:
     card = {'id': PROVIDER_ID, 'name': PROVIDER_NAME, 'kind': 'spend',
             'currency': 'USD', 'available': True, 'status': 'ok', 'error': None,
             'tier': 'paid'}
-    for path in ('/v3/user', '/api/v1/user/balance', '/v1/user'):
+    for path in ('/v3/user',):        # tek yol: ölçüldü, ötekiler 404
         try:
             data = _get(path, key)
         except urllib.error.HTTPError as e:
@@ -69,14 +58,16 @@ def _build(days: int) -> dict:
             continue
         except Exception:
             continue
-        bal = _dig(data, _BALANCE_FIELDS)
+        bal = _money.pick_amount(data)
         if bal is not None:
             # Novita bakiyeyi bazen "kuruş" (1/100) tutar — ham değeri koru, not düş
             card['balance'] = {'remaining': round(bal, 4)}
-            card['note'] = f'Bakiye {path} üzerinden (ADAY endpoint — birim/ölçek doğrula).'
+            card['note'] = (f'Bakiye {path} üzerinden (uç ölçüldü; şema ve para birimi '
+                            f'canlı anahtarla doğrulanmadı).')
             return card
     return {**card, 'status': 'error',
-            'error': 'Bakiye endpoint\'i doğrulanacak (aday) — alan bulunamadı'}
+            'error': 'Uç yanıt verdi ama tanınan bir bakiye alanı yok — '
+                     'şema canlı anahtarla doğrulanmalı (rakam uydurulmadı)'}
 
 
 def collect(days: int = 30) -> dict:

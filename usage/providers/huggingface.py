@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-HuggingFace adaptörü — kota (quota). (FAZ 4c — ADAY)
+HuggingFace adaptörü — kota (quota).
 
 ⚠️ HF'nin temiz bir public "kullanım" API'si yok. `whoami-v2` ile key doğrulanır;
-kota için ADAY `/api/quota` denenir (plan iddiası — canlı doğrulanacak).
+kota için `/api/quota` denenir. **2026-08-11 ölçümü: bu uç VAR** (kimliksiz 401 döndü) —
+plan iddiası değil artık. Şema hâlâ canlı anahtarla görülmedi.
   GET https://huggingface.co/api/whoami-v2  → key geçerlilik + plan
-  GET https://huggingface.co/api/quota      → (aday) quota_used / quota_limit
+  GET https://huggingface.co/api/quota      → quota_used / quota_limit (uç ölçüldü, şema değil)
 
 Key: $HUGGINGFACE_API_KEY veya $HF_TOKEN. Yoksa → None. 90s cache.
 Kota bulunursa kind='quota'; bulunmazsa geçerli-key ama 'kullanım API yok' hata kartı.
@@ -72,7 +73,7 @@ def _build(days: int) -> dict:
                               'remaining': limit - used,
                               'pct': round(used / limit * 100, 1),
                               'unit': 'kredi', 'reset': None},
-                    'note': 'Kota /api/quota (ADAY — doğrula).'}
+                    'note': 'Kota /api/quota üzerinden (uç ölçüldü; şema doğrulanmadı).'}
     except Exception:
         pass
     return {**base, 'kind': 'quota', 'tier': str(plan), 'status': 'error',

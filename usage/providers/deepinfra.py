@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-DeepInfra adaptörü — kredi/bakiye (OpenRouter deseni). (FAZ 4c — ADAY)
+ENDPOINT ÖLÇÜMÜ: 2026-08-11'de kimliksiz yoklandı: /v1/me → 401 (var). /api/v1/user ve /v1/user → 404 (yok), kaldırıldı.
 
-⚠️ Endpoint ADAY: canlı key ile doğrulanacak. Defansif parse (bilinen bakiye alanları).
+DeepInfra adaptörü — kredi/bakiye (OpenRouter deseni).
+
+Uç VAR (ölçüldü). ŞEMA hâlâ doğrulanmadı — anahtar yok, yanıtın içindeki alan adları
+görülmedi. Bu yüzden tutar `_money.pick_amount` ile dar taranır; tanınmazsa **rakam
+gösterilmez**, "alan tanınmadı" denir.
   Denenen: GET https://api.deepinfra.com/v1/me · /api/v1/user
 
 Key: $DEEPINFRA_API_KEY (veya $DEEPINFRA_TOKEN). Yoksa → None. 90s cache.
@@ -14,6 +18,8 @@ import time
 import urllib.error
 import urllib.request
 
+from . import _money
+
 PROVIDER_ID = 'deepinfra'
 PROVIDER_NAME = 'DeepInfra'
 BASE = 'https://api.deepinfra.com'
@@ -21,7 +27,6 @@ CACHE_TTL = 90.0
 
 _LOCK = threading.Lock()
 _CACHE = None
-_BALANCE_FIELDS = ('balance', 'credit', 'credits', 'remaining', 'available', 'amount')
 
 
 def _key():
@@ -38,21 +43,6 @@ def _get(path: str, key: str):
         return json.load(r)
 
 
-def _dig(obj, fields):
-    if isinstance(obj, dict):
-        for f in fields:
-            if f in obj:
-                try:
-                    return float(obj[f])
-                except (TypeError, ValueError):
-                    pass
-        for v in obj.values():
-            r = _dig(v, fields)
-            if r is not None:
-                return r
-    return None
-
-
 def _build(days: int) -> dict:
     key = _key()
     if not key:
@@ -60,7 +50,7 @@ def _build(days: int) -> dict:
     card = {'id': PROVIDER_ID, 'name': PROVIDER_NAME, 'kind': 'spend',
             'currency': 'USD', 'available': True, 'status': 'ok', 'error': None,
             'tier': 'paid'}
-    for path in ('/v1/me', '/api/v1/user', '/v1/user'):
+    for path in ('/v1/me',):        # tek yol: ölçüldü, ötekiler 404
         try:
             data = _get(path, key)
         except urllib.error.HTTPError as e:
@@ -69,13 +59,14 @@ def _build(days: int) -> dict:
             continue
         except Exception:
             continue
-        bal = _dig(data, _BALANCE_FIELDS)
+        bal = _money.pick_amount(data)
         if bal is not None:
             card['balance'] = {'remaining': round(bal, 4)}
-            card['note'] = f'Bakiye {path} üzerinden (ADAY endpoint — doğrula).'
+            card['note'] = f'Bakiye {path} üzerinden (uç ölçüldü; şema canlı anahtarla doğrulanmadı).'
             return card
     return {**card, 'status': 'error',
-            'error': 'Bakiye endpoint\'i doğrulanacak (aday) — alan bulunamadı'}
+            'error': 'Uç yanıt verdi ama tanınan bir bakiye alanı yok — '
+                     'şema canlı anahtarla doğrulanmalı (rakam uydurulmadı)'}
 
 
 def collect(days: int = 30) -> dict:

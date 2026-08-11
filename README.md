@@ -125,18 +125,38 @@ Claude Code, Codex and local runners (Ollama / LM Studio / Jan) need **no key** 
 
 Keys live in **one file**, `~/.config/usage-tracker/env` (created by `install.sh`/`setup.sh`, `chmod 600`). It's loaded by both `./start.sh` and the systemd service, so keys work whether you run the server by hand or on login. Format is `KEY=value`, one per line — uncomment what you use:
 
-| Provider | Env var | Shows | Get a key |
-|---|---|---|---|
-| OpenRouter | `OPENROUTER_API_KEY` | spend + credit + daily limit | <https://openrouter.ai/keys> |
-| OpenAI | `OPENAI_ADMIN_KEY` | Costs API spend — needs an **admin** key (project key → 401) | Platform → *Admin keys* |
-| DeepSeek | `DEEPSEEK_API_KEY` | balance *(candidate — not yet live-verified)* | <https://platform.deepseek.com> |
-| ElevenLabs | `ELEVENLABS_API_KEY` | character quota + monthly reset | ElevenLabs → *Profile* |
-| Together | `TOGETHER_API_KEY` | credit balance *(candidate)* | <https://api.together.xyz/settings/api-keys> |
-| Novita | `NOVITA_API_KEY` | credit balance *(candidate)* | <https://novita.ai/settings/key-management> |
-| DeepInfra | `DEEPINFRA_API_KEY` | credit balance *(candidate)* | DeepInfra → *API keys* |
-| Hugging Face | `HUGGINGFACE_API_KEY` / `HF_TOKEN` | quota *(candidate)* | <https://huggingface.co/settings/tokens> |
+| Provider | Env var | Shows | Endpoint | Get a key |
+|---|---|---|---|---|
+| OpenRouter | `OPENROUTER_API_KEY` | spend + credit + daily limit | ✅ exists | <https://openrouter.ai/keys> |
+| OpenAI | `OPENAI_ADMIN_KEY` | Costs API spend — needs an **admin** key (project key → 401) | ✅ exists | Platform → *Admin keys* |
+| DeepSeek | `DEEPSEEK_API_KEY` | balance | ✅ exists | <https://platform.deepseek.com> |
+| ElevenLabs | `ELEVENLABS_API_KEY` | character quota + monthly reset | ✅ exists | ElevenLabs → *Profile* |
+| Novita | `NOVITA_API_KEY` | credit balance | ✅ exists | <https://novita.ai/settings/key-management> |
+| DeepInfra | `DEEPINFRA_API_KEY` | credit balance | ✅ exists | DeepInfra → *API keys* |
+| Hugging Face | `HUGGINGFACE_API_KEY` / `HF_TOKEN` | quota | ✅ exists | <https://huggingface.co/settings/tokens> |
+| Together | `TOGETHER_API_KEY` | **nothing — see below** | 🔴 none published | <https://api.together.xyz/settings/api-keys> |
 
-After editing keys, restart the server: `./service.sh restart` (or re-run `./start.sh`). Providers marked *candidate* have documented endpoints not yet verified against a live key — if one misbehaves it shows an honest error card, never a wrong number.
+After editing keys, restart the server: `./service.sh restart` (or re-run `./start.sh`).
+
+### How far these are verified
+
+On 2026-08-11 every endpoint above was probed **without credentials**. A `401` proves the
+URL exists and wants a key; a `404` proves the adapter would never have worked. Everything
+marked ✅ came back `401` (or `400` for Novita, which wants a parameter).
+
+**Together AI is the exception and it is worth being blunt about.** Its API base is real —
+`/v1/models` answers `401 Missing API key` — but it publishes no account, balance or usage
+endpoint at all: seven candidate paths all returned `404` with an HTML page, on both
+`api.together.xyz` and `api.together.ai`. The adapter used to scan those non-existent
+responses for any field named `balance`/`credit`/`remaining` and print the first number it
+found. It now validates your key and says plainly that Together exposes nothing to read.
+
+What is **still unverified** is the response *shape* behind those 401s — nobody here has a
+key for these services, so the field names inside a successful reply have not been seen. If
+an adapter meets a payload it does not recognise it says so and shows no figure; it will
+not invent one. Amount scanning is deliberately narrow (`usage/providers/_money.py`): a
+boolean is not an amount, and a `remaining` buried in some unrelated rate-limit object is
+not your balance.
 
 ## What it tracks
 
@@ -144,7 +164,7 @@ After editing keys, restart the server: `./service.sh restart` (or re-run `./sta
 |---|---|---|
 | **Spend** | Today / Yesterday / 30-day **$** + per-model + 30-day chart | `~/.claude/projects/**/*.jsonl` tokens × real prices |
 | **Limits** | Session (5h) + Weekly usage %, reset countdown | Anthropic's own `/api/oauth/usage` (real), local estimate as fallback |
-| **Providers** | 16 adapters: real $ (OpenRouter, OpenAI, DeepSeek), credit/quota (ElevenLabs, HuggingFace, Together, Novita, DeepInfra), local (Ollama, LM Studio, Jan), local-log tokens (Codex, Aider, Continue, Cody, Windsurf) | each provider's API / local files |
+| **Providers** | 16 adapters: real $ (OpenRouter, OpenAI, DeepSeek), credit/quota (ElevenLabs, HuggingFace, Novita, DeepInfra), local (Ollama, LM Studio, Jan), local-log tokens (Codex, Aider, Continue, Cody, Windsurf), key-check only (Together — it publishes no usage endpoint) | each provider's API / local files |
 
 ### Is the data real?
 
