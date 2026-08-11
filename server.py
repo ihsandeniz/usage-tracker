@@ -25,7 +25,8 @@ from usage import engine, viewconfig   # noqa: E402
 VERSION = '0.2.2'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
-WEBD = Path(__file__).resolve().parent / 'web'
+from usage import platform as _paths          # noqa: E402
+WEBD = _paths.resource_dir() / 'web'       # donmuş pakette sys._MEIPASS/web
 
 # DNS rebinding koruması: Host başlığı allowlist (setup_server.py'den uyarlanmış)
 # Meşru olanlar: 127.0.0.1:<PORT>, localhost:<PORT>, [::1]:<PORT>, portsuz varyantlar

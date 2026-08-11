@@ -26,7 +26,10 @@ import threading
 from datetime import date, datetime
 from pathlib import Path
 
-BUNDLED_PATH = Path(__file__).resolve().parent.parent / 'data' / 'models_dev_prices.json.gz'
+from . import platform as _paths
+
+# Salt-okunur paket verisi — donmuş pakette sys._MEIPASS altında
+BUNDLED_PATH = _paths.resource_dir() / 'data' / 'models_dev_prices.json.gz'
 HERMES_CACHE = Path.home() / '.hermes' / 'models_dev_cache.json'
 MODELS_DEV_URL = 'https://models.dev/api.json'
 

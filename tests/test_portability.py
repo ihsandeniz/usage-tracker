@@ -284,6 +284,56 @@ class NothingWritesIntoTheInstallation(unittest.TestCase):
                 self.assertEqual(engine._load_calib().get('anchorPct'), 7)
 
 
+class FrozenBundle(unittest.TestCase):
+    """PyInstaller unpacks a one-file build into a temp directory and points sys._MEIPASS at
+    it. Anything resolved from `Path(__file__).parent.parent` lands somewhere else, so the
+    web assets, the price snapshot and the overrides table go missing — in a build that
+    otherwise starts up fine and reports no error. Nothing in the repo knew about this.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.meipass = pathlib.Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_unfrozen_resources_sit_with_the_code(self):
+        self.assertFalse(up.is_frozen())
+        self.assertEqual(up.resource_dir(), up.INSTALL_DIR)
+
+    def test_frozen_resources_come_from_meipass(self):
+        with mock.patch.object(up.sys, '_MEIPASS', str(self.meipass), create=True), \
+                mock.patch.object(up.sys, 'frozen', True, create=True):
+            self.assertTrue(up.is_frozen())
+            self.assertEqual(up.resource_dir(), self.meipass)
+
+    def test_state_still_goes_to_the_user_when_frozen(self):
+        """_MEIPASS is a temp directory that disappears on exit. Writing state there would
+        silently lose the user's calibration on every run."""
+        with mock.patch.object(up.sys, '_MEIPASS', str(self.meipass), create=True), \
+                mock.patch.object(up.sys, 'frozen', True, create=True):
+            for d in (up.config_dir(), up.state_dir(), up.cache_dir()):
+                self.assertFalse(str(d).startswith(str(self.meipass)),
+                                 f'{d} would vanish when the bundle exits')
+
+    def test_bundled_resources_are_resolved_through_the_helper(self):
+        """A module that hardcodes __file__ will not follow _MEIPASS. Assert the wiring,
+        since a frozen build cannot be exercised from here."""
+        import ast
+        for rel in ('usage/pricing.py', 'usage/catalog.py'):
+            src = (REPO / rel).read_text(encoding='utf-8')
+            tree = ast.parse(src)
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+                    continue
+                target = node.targets[0]
+                if not (isinstance(target, ast.Name)
+                        and target.id in ('OVERRIDES_PATH', 'BUNDLED_PATH')):
+                    continue
+                self.assertNotIn('__file__', ast.dump(node.value),
+                                 f'{rel}: {target.id} resolves from __file__ and will not '
+                                 f'find its data inside a PyInstaller bundle')
+
+
 class StdlibPlatformIsNotShadowed(unittest.TestCase):
     """usage/platform.py sits next to modules that may `import platform`. If the package
     directory ever lands on sys.path, ours would win and break them silently."""

@@ -23,8 +23,10 @@ from datetime import date
 from pathlib import Path
 
 from . import catalog
+from . import platform as _paths
 
-OVERRIDES_PATH = Path(__file__).resolve().parent.parent / 'price_overrides.json'
+# Salt-okunur paket verisi: donmuş pakette sys._MEIPASS altındadır (usage/platform.py)
+OVERRIDES_PATH = _paths.resource_dir() / 'price_overrides.json'
 
 ZERO = {'input': 0.0, 'output': 0.0, 'cache_read': 0.0, 'cache_write': 0.0}
 

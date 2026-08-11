@@ -1,0 +1,126 @@
+name: package
+
+# Ayrı bir dosya, bilerek: ci.yml'de hiçbir kurulum adımı yoktur ve olmamalıdır — sıfır
+# bağımlılık sözü orada ölçülür. PyInstaller bir *derleme* aracıdır, çalışma zamanı
+# bağımlılığı değil; o yüzden burada yaşar.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Neden elle tetiklendi'
+        required: false
+        default: 'manual build'
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: windows .exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - run: pip install pyinstaller
+      - run: pyinstaller packaging/usage-tracker.spec --noconfirm --clean
+
+      - name: The exe starts and serves the wire
+        # "Derlendi" ile "çalışıyor" arasındaki farkın CI'da ölçülebilen kısmı burasıdır.
+        # Ölçemediği kısım: kurulum akışı, tepsi ikonu, SmartScreen, antivirüs karantinası.
+        shell: pwsh
+        run: |
+          $env:USAGE_PORT = '8770'
+          $proc = Start-Process -FilePath dist\usage-tracker.exe -PassThru -NoNewWindow
+          $wire = $null
+          foreach ($i in 1..40) {
+            Start-Sleep -Milliseconds 500
+            try { $wire = Invoke-RestMethod http://127.0.0.1:8770/v1/usage; break } catch { }
+          }
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          if ($null -eq $wire) { throw 'the exe never answered on 127.0.0.1:8770' }
+          if ($wire.schema -ne 'usage/v1') { throw "unexpected schema: $($wire.schema)" }
+          $cat = $wire.providers[0].spend.catalog
+          Write-Host "schema=$($wire.schema) catalog=$($cat.source) models=$($cat.modelCount)"
+          # Windows runner'da ne Hermes ne kullanıcı cache'i vardır: fiyatlar paketin
+          # içindeki snapshot'tan gelmek ZORUNDA. Gelmiyorsa .exe verisini kaybetmiş demektir.
+          if ($cat.source -ne 'bundled') { throw "expected the bundled catalogue, got $($cat.source)" }
+          if ($cat.modelCount -lt 1000)  { throw "bundled catalogue looks empty: $($cat.modelCount)" }
+
+      - name: Static assets survived the bundling
+        shell: pwsh
+        run: |
+          $env:USAGE_PORT = '8772'
+          $proc = Start-Process -FilePath dist\usage-tracker.exe -PassThru -NoNewWindow
+          $ok = $false
+          foreach ($i in 1..40) {
+            Start-Sleep -Milliseconds 500
+            try {
+              foreach ($p in '/', '/app.js', '/styles.css') {
+                $r = Invoke-WebRequest "http://127.0.0.1:8772$p" -UseBasicParsing
+                if ($r.StatusCode -ne 200) { throw "$p -> $($r.StatusCode)" }
+              }
+              $ok = $true; break
+            } catch { }
+          }
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          if (-not $ok) { throw 'web/ did not make it into the bundle' }
+
+      - name: Where does it write on Windows
+        # W0'ın kodla bulunabilen yarısı. Diğer yarısı (Claude/Codex Windows'ta verisini
+        # nereye yazıyor) bir keşiftir ve gerçek makine ister.
+        shell: pwsh
+        run: python -m usage.platform
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usage-tracker-windows-x64
+          path: dist/usage-tracker.exe
+          if-no-files-found: error
+
+  linux:
+    name: linux binary (old glibc)
+    runs-on: ubuntu-latest
+    # 🔴 Konteynerin amacı bu: GalleryWeb'in Linux paketi Arch'ta derlendi, oradaki
+    # GLIBC_2.43'e bağlandı ve hiçbir LTS dağıtımında açılmadı. Bookworm'un glibc 2.36'sı
+    # Debian 12 / Ubuntu 22.04 ve üstünü kapsar. Runner imajının glibc'sine güvenmiyoruz:
+    # o sürüm bizden habersiz yükselir ve ikili sessizce daralır.
+    container: python:3.13-slim-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install pyinstaller
+      - run: pyinstaller packaging/usage-tracker.spec --noconfirm --clean
+
+      - name: Report the glibc floor we linked against
+        run: |
+          ldd --version | head -1
+          objdump -T dist/usage-tracker 2>/dev/null \
+            | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -5 || true
+
+      - name: The binary starts and serves the wire
+        run: |
+          USAGE_PORT=8770 ./dist/usage-tracker &
+          for i in $(seq 1 40); do
+            sleep 0.5
+            if python -c "
+          import json,sys,urllib.request
+          try: w=json.load(urllib.request.urlopen('http://127.0.0.1:8770/v1/usage', timeout=2))
+          except Exception: sys.exit(1)
+          cat=w['providers'][0]['spend']['catalog']
+          print('schema=%s catalog=%s models=%s' % (w['schema'], cat['source'], cat['modelCount']))
+          sys.exit(0 if (w['schema']=='usage/v1' and cat['source']=='bundled'
+                         and cat['modelCount']>1000) else 2)
+          "; then exit 0; fi
+          done
+          echo '::error::the binary never served a usable wire'; exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: usage-tracker-linux-x64
+          path: dist/usage-tracker
+          if-no-files-found: error

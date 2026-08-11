@@ -39,6 +39,26 @@ SYS_PLATFORM = sys.platform
 # Kurulum dizini: bu paketin kökü. **Yazılabilir varsayılmaz.**
 INSTALL_DIR = Path(__file__).resolve().parent.parent
 
+
+def is_frozen() -> bool:
+    """PyInstaller (veya benzeri) ile tek dosyaya paketlenmiş miyiz?"""
+    return bool(getattr(sys, 'frozen', False))
+
+
+def resource_dir() -> Path:
+    """Paketle birlikte gelen **salt-okunur** veri nerede: `web/`, `data/`,
+    `price_overrides.json`.
+
+    PyInstaller tek-dosya paketi kendini geçici bir dizine açar ve `sys._MEIPASS`'i
+    oraya bakar. `Path(__file__).parent.parent` başka bir yeri gösterir; sonuç, sorunsuz
+    açılan ama web varlıkları ve fiyat kataloğu **kayıp** bir uygulamadır.
+
+    Dikkat: burası geçicidir, çalışma bitince silinir — kullanıcı verisi buraya değil,
+    `state_dir()`/`config_dir()`/`cache_dir()`'a yazılır.
+    """
+    meipass = getattr(sys, '_MEIPASS', None)
+    return Path(meipass) if meipass else INSTALL_DIR
+
 _WRITE_LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
 
