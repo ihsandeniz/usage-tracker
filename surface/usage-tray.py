@@ -17,6 +17,7 @@ Config (surface.conf veya env): USAGE_URL (varsayılan http://127.0.0.1:8770), T
 Veri seçimine (view_config.json) otomatik uyar — /v1/usage zaten süzülmüş gelir.
 """
 import json
+import math
 import os
 import subprocess
 import sys
@@ -68,6 +69,10 @@ _COLORS = {
     'off':  '#6b7280',   # gri (sunucu kapalı)
 }
 
+_CURRENCY_SYMBOLS = {
+    'USD': '$', 'EUR': '€', 'CNY': '¥', 'GBP': '£', 'TRY': '₺'
+}
+
 
 def _fetch():
     """(/v1/usage) → dict | None (sunucu kapalı)."""
@@ -85,20 +90,27 @@ def _bar(pct):
     return '█' * n + '░' * (10 - n)
 
 
-def _col(pct):
+def _col(pct, th=None):
     if pct is None:
         return _COLORS['off']
-    return _COLORS['crit'] if pct >= 90 else _COLORS['warn'] if pct >= 75 else '#22d3ee'
+    if th is None:
+        th = {'warn': 75, 'crit': 90}
+    return _COLORS['crit'] if pct >= th['crit'] else _COLORS['warn'] if pct >= th['warn'] else '#22d3ee'
 
 
-def _cbar(pct):
-    return '<span color="%s">%s</span>' % (_col(pct), _bar(pct))
+def _cbar(pct, th=None):
+    return '<span color="%s">%s</span>' % (_col(pct, th), _bar(pct))
 
 
-def _cpct(v):
+def _round_half_up(v, decimals=1):
+    """Half-up rounding (0.5 yukarı yuvarla)."""
+    factor = 10 ** decimals
+    return math.floor(v * factor + 0.5) / factor
+
+def _cpct(v, th=None):
     if v is None:
         return '<span color="%s">—</span>' % _COLORS['off']
-    return '<span color="%s">%s%%</span>' % (_col(v), round(v * 10) / 10)
+    return '<span color="%s">%s%%</span>' % (_col(v, th), _round_half_up(v, 1))
 
 
 def _dur(sec):
@@ -125,6 +137,7 @@ def _summarize(data):
     """(class, headline_pct, tooltip_html, menu_headline) döndür."""
     if not data:
         return 'off', None, 'usage-tracker kapalı (%s)' % BASE, 'usage-tracker · kapalı'
+    th = data.get('thresholds') or {'warn': 75, 'crit': 90}
     provs = {p.get('id'): p for p in (data.get('providers') or [])}
     claude = provs.get('claude') or {}
     limits = claude.get('limits') or {}
@@ -134,32 +147,35 @@ def _summarize(data):
     sp = sess.get('pct')
     wp = week.get('pct')
     hi = max([v for v in (sp, wp) if v is not None] or [0])
-    cls = 'crit' if hi >= 90 else 'warn' if hi >= 75 else 'ok'
+    cls = 'crit' if hi >= th['crit'] else 'warn' if hi >= th['warn'] else 'ok'
 
     lines = ['<b>Claude</b>',
-             '  %s oturum %s%s' % (_cbar(sp), _cpct(sp), _rst(sess.get('resetInSec'))),
-             '  %s haftalık %s%s' % (_cbar(wp), _cpct(wp), _rst(week.get('resetInSec')))]
+             '  %s oturum %s%s' % (_cbar(sp, th), _cpct(sp, th), _rst(sess.get('resetInSec'))),
+             '  %s haftalık %s%s' % (_cbar(wp, th), _cpct(wp, th), _rst(week.get('resetInSec')))]
     if wmodel.get('pct') is not None:
-        lines.append('  %s %s %s' % (_cbar(wmodel.get('pct')),
-                                     wmodel.get('name') or 'model', _cpct(wmodel.get('pct'))))
+        lines.append('  %s %s %s' % (_cbar(wmodel.get('pct'), th),
+                                     wmodel.get('name') or 'model', _cpct(wmodel.get('pct'), th)))
     fc = week.get('forecast') or {}
     if fc.get('willExceed') and fc.get('etaText'):
         lines.append('  <span color="%s">⚠ %s</span>' % (_COLORS['warn'], fc.get('etaText')))
     spend = claude.get('spend') or {}
+    curr = spend.get('currency', 'USD')
     headline = 'Claude · %d%%' % round(hi)
     if spend.get('today') is not None:
-        lines.append('  💰 bugün $%s · 30g $%s' % (_num(spend.get('today')), _num(spend.get('last30d'))))
-        headline = 'Claude %d%% · bugün $%s' % (round(hi), _num(spend.get('today')))
+        lines.append('  💰 bugün %s · 30g %s' % (_num(spend.get('today'), curr), _num(spend.get('last30d'), curr)))
+        headline = 'Claude %d%% · bugün %s' % (round(hi), _num(spend.get('today'), curr))
     for p in (data.get('providers') or []):
         if p.get('id') == 'claude':
             continue
-        line = _provider_line(p)
+        line = _provider_line(p, th)
         if line:
             lines.append(line)
     return cls, hi, '\n'.join(lines), headline
 
 
-def _provider_line(p):
+def _provider_line(p, th=None):
+    if th is None:
+        th = {'warn': 75, 'crit': 90}
     kind = p.get('kind')
     name = p.get('name', '?')
     st = p.get('status')
@@ -169,16 +185,17 @@ def _provider_line(p):
         sp = p.get('spend') or {}
         bal = p.get('balance') or {}
         lim = p.get('limit') or {}
+        curr = p.get('currency', 'USD')
         bits = []
         if sp.get('today') is not None:
-            bits.append('bugün $%s' % _num(sp.get('today')))
+            bits.append('bugün %s' % _num(sp.get('today'), curr))
         if sp.get('month') is not None:
-            bits.append('ay $%s' % _num(sp.get('month')))
+            bits.append('ay %s' % _num(sp.get('month'), curr))
         if bal.get('remaining') is not None:
-            bits.append('kredi $%s' % _num(bal.get('remaining')))
+            bits.append('kredi %s' % _num(bal.get('remaining'), curr))
         line = '<b>%s</b>  %s' % (name, ' · '.join(bits)) if bits else '<b>%s</b>' % name
         if lim.get('pct') is not None:
-            line += '\n  %s limit %s' % (_cbar(lim.get('pct')), _cpct(lim.get('pct')))
+            line += '\n  %s limit %s' % (_cbar(lim.get('pct'), th), _cpct(lim.get('pct'), th))
             if lim.get('reset'):
                 line += '  <span color="%s">↺%s</span>' % (_COLORS['off'], lim.get('reset'))
         return line if (bits or lim.get('pct') is not None) else None
@@ -187,7 +204,7 @@ def _provider_line(p):
         if q.get('pct') is None:
             return None
         line = '<b>%s</b>\n  %s %s  <span color="%s">%s/%s %s</span>' % (
-            name, _cbar(q.get('pct')), _cpct(q.get('pct')), _COLORS['off'],
+            name, _cbar(q.get('pct'), th), _cpct(q.get('pct'), th), _COLORS['off'],
             q.get('used'), q.get('limit'), q.get('unit', ''))
         if q.get('reset'):
             t = _dur(q.get('reset') - time.time())
@@ -199,8 +216,9 @@ def _provider_line(p):
             return None
         tot = (p.get('tokens') or {}).get('total') or 0
         usd = (p.get('total') or {}).get('usd') or 0
+        curr = p.get('currency', 'USD')
         return '<b>%s</b>  %sM tok%s' % (name, round(tot / 1e6, 1),
-                                         (' ≈ $%s' % _num(usd)) if usd else '')
+                                         (' ≈ %s' % _num(usd, curr)) if usd else '')
     if kind == 'local':
         if st == 'offline':
             return '<b>%s</b>  <span color="%s">servis kapalı</span>' % (name, _COLORS['off'])
@@ -209,12 +227,13 @@ def _provider_line(p):
 
 
 def _pct(v):
-    return '—' if v is None else '%s%%' % (round(v * 10) / 10)
+    return '—' if v is None else '%s%%' % _round_half_up(v, 1)
 
 
-def _num(v):
+def _num(v, currency='USD'):
     try:
-        return '%.2f' % float(v)
+        symbol = _CURRENCY_SYMBOLS.get(currency, currency + ' ' if currency else '$')
+        return symbol + ('%.2f' % float(v))
     except (TypeError, ValueError):
         return '0.00'
 

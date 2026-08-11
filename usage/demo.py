@@ -400,6 +400,9 @@ def usage_wire() -> dict:
         'id': 'claude',
         'name': 'Claude Code',
         'calibrated': limits['calibrated'],
+        # Demo'da canlı uç kapalı — ama alan var olmalı, yoksa demo yüzeyin 'live' yolunu
+        # hiç egzersiz etmez ve o yol ilk kez gerçek kullanıcıda çalışır.
+        'live': limits.get('live') or fetch(),
         'limits': {
             'session': limit_bar(limits['session']),
             'weekly': limit_bar(limits['weeklyAll']),
@@ -421,6 +424,8 @@ def usage_wire() -> dict:
             ],
             'priceComplete': spend['priceComplete'],
             'estimatedModels': spend['estimatedModels'],
+            'unknownPriceModels': spend.get('unknownPriceModels', []),
+            'catalog': spend.get('catalog'),
         },
     }
 
@@ -428,6 +433,7 @@ def usage_wire() -> dict:
         'schema': 'usage/v1',
         'generatedAtMs': now_ms,
         'generatedAt': datetime.fromtimestamp(now_ms / 1000).isoformat(timespec='seconds'),
+        'thresholds': limits['thresholds'],
         'providers': [claude] + collect(30),
     }
 

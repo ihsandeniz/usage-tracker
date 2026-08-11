@@ -37,12 +37,16 @@ _MODEL_RE = re.compile(r'"model"\s*:\s*"([^"]+)"')
 
 # event: (ms, model, inp, cached_in, out)
 def _parse_file(fp: Path):
+    """(events, hit_line_limit) döndür. hit_line_limit=True ise dosyanın sonu OKUNMADI —
+       çağıran bunu kullanıcıya söylemek zorunda (sessiz kesme yasak)."""
     events = []
     cur_model = ''
+    hit_limit = False
     try:
         with fp.open(encoding='utf-8') as fh:
             for line_idx, line in enumerate(fh):
                 if line_idx >= MAX_LINES_PER_FILE:
+                    hit_limit = True
                     break
                 if '"model"' in line:
                     m = _MODEL_RE.search(line)
@@ -74,8 +78,8 @@ def _parse_file(fp: Path):
                                int(last.get('cached_input_tokens') or 0),
                                int(last.get('output_tokens') or 0)))
     except OSError:
-        return []
-    return events
+        return [], False
+    return events, hit_limit
 
 
 def _iso_to_ms(ts: str):
@@ -86,32 +90,46 @@ def _iso_to_ms(ts: str):
 
 
 def _scan(since_ms: int):
+    """(events, files, truncated_reason) döndür. truncated_reason ∈ {None,'files','lines'}.
+
+    Tavana çarpılırsa **en yeni** dosyalar tutulur. Eskiden `rglob` sırasına güveniliyordu;
+    o sıra dosya sisteminin iç sırası olduğu için hangi 40 oturumun sayıldığı rastgeleydi
+    ve iki çalıştırma farklı sonuç verebiliyordu.
+    """
     if not SESSIONS_DIR.exists():
         return None                    # yapılandırılmamış
-    events = []
-    files = 0
     cutoff = since_ms / 1000 - 86400
+
+    candidates = []
     for fp in SESSIONS_DIR.rglob('rollout-*.jsonl'):
-        if files >= MAX_FILES:
-            break
         try:
             st = fp.stat()
         except OSError:
             continue
         if st.st_mtime < cutoff:
             continue
+        candidates.append((st.st_mtime, st.st_size, fp))
+
+    # en yeni önce; eşit mtime'da yol adıyla kararlı sırala (iki koşu aynı sonucu versin)
+    candidates.sort(key=lambda c: (-c[0], str(c[2])))
+    truncated_reason = 'files' if len(candidates) > MAX_FILES else None
+    candidates = candidates[:MAX_FILES]
+
+    events = []
+    for mtime, size, fp in candidates:
         key = str(fp)
         with _LOCK:
             c = _FILE_CACHE.get(key)
-        if c and c[0] == st.st_mtime and c[1] == st.st_size:
-            evs = c[2]
+        if c and c[0] == mtime and c[1] == size:
+            evs, hit_lines = c[2], c[3]
         else:
-            evs = _parse_file(fp)
+            evs, hit_lines = _parse_file(fp)
             with _LOCK:
-                _FILE_CACHE[key] = (st.st_mtime, st.st_size, evs)
-        files += 1
+                _FILE_CACHE[key] = (mtime, size, evs, hit_lines)
+        if hit_lines and truncated_reason is None:
+            truncated_reason = 'lines'
         events.extend(e for e in evs if e[0] >= since_ms)
-    return events, files
+    return events, len(candidates), truncated_reason
 
 
 def _short(model: str) -> str:
@@ -131,7 +149,7 @@ def collect(days: int = 30) -> dict:
     scan = _scan(window_start)
     if scan is None:
         return None
-    events, files = scan
+    events, files, truncated_reason = scan
 
     auth_mode = 'chatgpt'
     try:
@@ -169,9 +187,23 @@ def collect(days: int = 30) -> dict:
     model_list = sorted(({'model': k, **v, 'usd': round(v['usd'], 4)} for k, v in by_model.items()),
                         key=lambda x: x['usd'], reverse=True)
 
+    if truncated_reason == 'files':
+        trunc_note = (f' ⚠️ Yalnız en yeni {MAX_FILES} oturum tarandı — gösterilen toplam '
+                      f'EKSİK, gerçek kullanım daha yüksek.')
+    elif truncated_reason == 'lines':
+        trunc_note = (f' ⚠️ En az bir oturum günlüğü {MAX_LINES_PER_FILE} satırda kesildi — '
+                      f'gösterilen toplam EKSİK.')
+    else:
+        trunc_note = ''
+
     return {
         'id': PROVIDER_ID, 'name': PROVIDER_NAME, 'kind': 'tokens',
-        'available': True, 'status': 'ok' if events else 'nodata', 'error': None,
+        'available': True,
+        # 'partial': sayı var ama eksik. 'ok' demek yalan olurdu.
+        'status': ('partial' if (truncated_reason and events)
+                   else ('ok' if events else 'nodata')),
+        'error': None,
+        'truncated': truncated_reason is not None, 'truncatedReason': truncated_reason,
         'currency': 'USD', 'auth': auth_mode, 'windowDays': days, 'sessions': files,
         'tokens': {'input': tot['input'], 'cached_input': tot['cached_input'],
                    'output': tot['output'], 'total': tok_total},
@@ -182,7 +214,8 @@ def collect(days: int = 30) -> dict:
         'usdSource': 'estimate' if ('estimate' in sources or 'unknown' in sources) else 'catalog',
         'note': ('ChatGPT aboneliği — $ API-eşdeğeri maliyettir (gerçek fatura sabit abonelik). '
                  if auth_mode == 'chatgpt' else '') +
-                'Token, rollout günlüklerindeki turn deltalarından; reasoning output içinde.',
+                'Token, rollout günlüklerindeki turn deltalarından; reasoning output içinde.' +
+                trunc_note,
     }
 
 

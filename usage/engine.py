@@ -346,7 +346,8 @@ def _overlay_live(out: dict, now_ms: int):
     """Anthropic'in canlı gerçek utilization %'sini limit barlarına bindir (kalibrasyonsuz)."""
     lv = live.fetch()
     out['live'] = {'ok': lv.get('ok'), 'error': lv.get('error'), 'cached': lv.get('cached'),
-                   'stale': lv.get('stale'), 'rateLimited': lv.get('rateLimited'),
+                   'fetchedAtMs': lv.get('fetchedAtMs'), 'ageSec': lv.get('ageSec'),
+                   'stale': bool(lv.get('stale')), 'rateLimited': lv.get('rateLimited'),
                    'rateLimitTier': lv.get('rateLimitTier')}
     if not lv.get('ok'):
         return
@@ -463,18 +464,21 @@ def compute_spend(days: int = 30) -> dict:
     by_model = {}     # full model -> {usd, tokens{...}, source, short}
     by_day = {}       # 'YYYY-MM-DD' -> usd
     estimated = set()
+    unknown_tokens = {}  # model -> fiyatlanamayan token; $ toplamına dahil edilmez
     tokens_total = {'input': 0, 'output': 0, 'cache_write': 0, 'cache_read': 0}
 
     for t in turns:
         usd, source = pricing.turn_cost_usd(t.inp, t.out, t.cc, t.cr, t.model)
-        total += usd
-        if t.ms >= today_start:
-            today += usd
-        elif t.ms >= yday_start:
-            yesterday += usd
-
         day_key = datetime.fromtimestamp(t.ms / 1000).strftime('%Y-%m-%d')
-        by_day[day_key] = by_day.get(day_key, 0.0) + usd
+        # `unknown` fiyatın sıfır olduğu anlamına gelmez. Bilinen kısmı bir taban
+        # (floor) olarak tut; fiyatlanamayan tokenları aşağıda ayrıca yayınla.
+        if source != 'unknown':
+            total += usd
+            if t.ms >= today_start:
+                today += usd
+            elif t.ms >= yday_start:
+                yesterday += usd
+            by_day[day_key] = by_day.get(day_key, 0.0) + usd
 
         mk = t.model or '(bilinmiyor)'
         e = by_model.setdefault(mk, {
@@ -490,8 +494,10 @@ def compute_spend(days: int = 30) -> dict:
         tokens_total['output']      += t.out
         tokens_total['cache_write'] += t.cc
         tokens_total['cache_read']  += t.cr
-        if source in ('estimate', 'unknown'):
+        if source == 'estimate':
             estimated.add(mk)
+        elif source == 'unknown':
+            unknown_tokens[mk] = unknown_tokens.get(mk, 0) + t.raw
 
     model_list = sorted(
         ({'model': k, **v, 'usd': round(v['usd'], 4)} for k, v in by_model.items()
@@ -512,10 +518,18 @@ def compute_spend(days: int = 30) -> dict:
         'tokensTotal':   tokens_total,
         'byModel':       model_list,
         'byDay':         day_list,
-        'priceComplete': len(estimated) == 0,
+        # Fiyatlar nereden geldi + güvenilir mi. Katalog eksik/bayatsa buradaki `warning`
+        # doludur ve yüzeyler onu göstermek zorundadır — sessiz $0 yasak (B1).
+        'catalog':       pricing.catalog_status(),
+        'priceComplete': not estimated and not unknown_tokens,
         'estimatedModels': sorted(estimated),
+        'unknownPriceModels': [
+            {'model': model, 'tokens': unknown_tokens[model]}
+            for model in sorted(unknown_tokens)
+        ],
         'note': '1M-context (opus[1m]) premium ve batch/service_tier indirimi ayrıştırılmaz; '
-                'estimate modelleri price_overrides.json ile düzeltilebilir.',
+                'estimate modelleri price_overrides.json ile düzeltilebilir; unknown fiyatlı '
+                'tokenlar $ toplamına dahil edilmez.',
     }
 
 
@@ -541,6 +555,7 @@ def usage_wire() -> dict:
     claude = {
         'id': 'claude', 'name': 'Claude Code',
         'calibrated': limits['calibrated'],
+        'live': limits.get('live'),
         'limits': {
             'session': limit_bar(limits['session']),
             'weekly':  limit_bar(limits['weeklyAll']),
@@ -555,12 +570,19 @@ def usage_wire() -> dict:
                         for m in spend['byModel']],
             'priceComplete': spend['priceComplete'],
             'estimatedModels': spend['estimatedModels'],
+            'unknownPriceModels': spend['unknownPriceModels'],
+            'catalog': spend.get('catalog'),
         },
     }
     return {
         'schema': 'usage/v1',
         'generatedAtMs': now_ms,
         'generatedAt': datetime.now().isoformat(timespec='seconds'),
+        # Eşik global bir görüntüleme politikasıdır, Claude'un bir özelliği değil: waybar
+        # kotayı da, quota kartlarını da aynı warn/crit ile renklendiriyor. Üst seviyede
+        # olmadığı için üç yüzey de kendi sabitini taşıyordu ve sunucu eşiği değiştirse
+        # sessizce sapıyorlardı (Y6). `providers[0].limits.thresholds` uyumluluk için kalır.
+        'thresholds': limits['thresholds'],
         'providers': [claude] + compute_providers(30),   # + codex/ollama/openrouter (FAZ 2)
     }
 

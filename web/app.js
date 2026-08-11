@@ -78,7 +78,22 @@ function updateI18n() {
 }
 
 const $ = (id) => document.getElementById(id);
-const fmtUsd = (n) => '$' + (n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Para birimi sembol haritası
+const CURRENCY_SYMBOLS = {
+  'USD': '$', 'EUR': '€', 'CNY': '¥', 'GBP': '£', 'TRY': '₺'
+};
+
+// Half-up rounding (0.5 yukarı yuvarla, tüm yüzeylerle uyumlu)
+const roundHalfUp = (n, decimals = 1) => {
+  const factor = Math.pow(10, decimals);
+  return Math.floor(n * factor + 0.5) / factor;
+};
+
+const fmtUsd = (n, currency = 'USD') => {
+  const symbol = CURRENCY_SYMBOLS[currency] || (currency ? currency + ' ' : '$');
+  return symbol + (n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 const fmtTok = (n) => (n ?? 0) >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
   : (n ?? 0) >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : String(n ?? 0);
 
@@ -88,11 +103,14 @@ async function getJSON(url, opts) {
   return r.json();
 }
 
+// Global fallback eşikleri (başlangıç)
+let GLOBAL_THRESHOLDS = { warn: 75, crit: 90 };
+
 // ── HARCAMA ──────────────────────────────────────────────
 function renderSpend(s) {
-  $('s-today').textContent = fmtUsd(s.today);
-  $('s-yday').textContent = fmtUsd(s.yesterday);
-  $('s-total').textContent = fmtUsd(s.total);
+  $('s-today').textContent = fmtUsd(s.today, s.currency);
+  $('s-yday').textContent = fmtUsd(s.yesterday, s.currency);
+  $('s-total').textContent = fmtUsd(s.total, s.currency);
   $('updated').textContent = t('updated') + ' ' + s.updated;
 
   const flag = $('price-flag');
@@ -140,7 +158,7 @@ function countdown(sec) {
 function lbar(name, sub, b, th) {
   const pct = b && b.pct != null ? b.pct : null;
   const w = pct == null ? 8 : Math.min(100, pct);
-  const label = pct == null ? '—' : pct.toFixed(1) + '%';
+  const label = pct == null ? '—' : roundHalfUp(pct, 1) + '%';
   const reset = b && b.resetInSec != null ? `reset ${countdown(b.resetInSec)}` : t('uncalib');
   const unitsStr = (b?.units ?? null) == null ? '—' : b.units.toLocaleString();
   const budget = b && b.budget ? `${unitsStr} / ${b.budget.toLocaleString()} ${t('units')}` : `${unitsStr} ${t('units')}`;
@@ -156,6 +174,7 @@ function lbar(name, sub, b, th) {
 }
 function renderLimits(u) {
   const th = u.thresholds || { warn: 75, crit: 90 };
+  GLOBAL_THRESHOLDS = th;  // Sunucu eşiklerini global olarak kaydet
   let html = lbar('Oturum (5s)', '', u.session, th) + lbar('Haftalık (tüm)', '', u.weeklyAll, th);
   if (u.weeklyModel) html += lbar('Haftalık model', u.weeklyModel.name, u.weeklyModel, th);
   $('limit-bars').innerHTML = html;
@@ -188,7 +207,7 @@ function renderGlanceStrip(usage, providers) {
   if (cl.length) {
     const hi = cl.reduce((a, b) => (b.pct > a.pct ? b : a));
     const cls = pctCls(hi.pct);
-    items.push(gchip('Claude', cls, hi.pct.toFixed(0) + '%', cls, hi.pct, '.limits'));
+    items.push(gchip('Claude', cls, Math.round(hi.pct) + '%', cls, hi.pct, '.limits'));
   }
   // Diğer sağlayıcılar — tür bazlı manşet
   for (const c of providers) {
@@ -196,7 +215,7 @@ function renderGlanceStrip(usage, providers) {
     let val = '—', vcls = 'muted', pct = null;
     if (c.status === 'error') { val = 'hata'; vcls = 'crit'; dot = 'err'; }
     else if (c.kind === 'spend') {
-      if (c.limit && c.limit.pct != null) { pct = c.limit.pct; dot = pctCls(pct); vcls = pctCls(pct); val = pct.toFixed(0) + '%'; }
+      if (c.limit && c.limit.pct != null) { pct = c.limit.pct; dot = pctCls(pct); vcls = pctCls(pct); val = Math.round(pct) + '%'; }
       else if (c.spend && c.spend.today != null) { val = fmtUsd(c.spend.today); vcls = 'spend'; }
       else if (c.balance) { val = fmtUsd(c.balance.remaining); vcls = 'spend'; }
     } else if (c.kind === 'tokens') {
@@ -206,7 +225,7 @@ function renderGlanceStrip(usage, providers) {
       if (c.status === 'offline') { val = 'kapalı'; vcls = 'muted'; }
       else { val = (c.modelCount || 0) + ' model'; vcls = 'ok'; }
     } else if (c.kind === 'quota') {
-      if (c.quota && c.quota.pct != null) { pct = c.quota.pct; dot = pctCls(pct); vcls = pctCls(pct); val = pct.toFixed(0) + '%'; }
+      if (c.quota && c.quota.pct != null) { pct = c.quota.pct; dot = pctCls(pct); vcls = pctCls(pct); val = Math.round(pct) + '%'; }
     }
     items.push(gchip(c.name, dot, val, vcls, pct, '#prov-' + c.id));
   }
@@ -259,6 +278,10 @@ function renderProviders(list) {
     if (c.status === 'error')
       return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || t('unreachable'))}</div>`);
 
+    if (c.status === 'partial')
+      // partial = ok gibi render et ama note varsa göster (truncated uyarısı içinde)
+      return provShell(c, `<div class="prov-note warn">⚠ ${esc(c.note || 'Tarama eksik (truncated)')}</div>`);
+
     if (c.kind === 'spend') {           // OpenRouter/OpenAI — gerçek $ (bazıları sadece bakiye)
       const sp = c.spend || {}, bal = c.balance, lim = c.limit;
       const cells = [];
@@ -268,9 +291,9 @@ function renderProviders(list) {
       if (!cells.length) cells.push(`<div><span class="pl muted">${t('noData')}</span><b>—</b></div>`);
       let body = `<div class="prov-stats">${cells.join('')}</div>`;
       if (lim) {
-        const cls = lim.pct == null ? 'none' : lim.pct >= 90 ? 'crit' : lim.pct >= 75 ? 'warn' : 'ok';
+        const cls = barClass(lim.pct, GLOBAL_THRESHOLDS);
         body += `<div class="prov-limit"><div class="pl-row"><span>${t('dailyLimit')} (${esc(lim.reset || '')})</span>
-          <span>${fmtUsd(lim.used)} / ${fmtUsd(lim.amount)}</span></div>${provMiniBar(lim.pct, cls)}</div>`;
+          <span>${fmtUsd(lim.used, c.currency)} / ${fmtUsd(lim.amount, c.currency)}</span></div>${provMiniBar(lim.pct, cls)}</div>`;
       }
       return provShell(c, body);
     }
@@ -301,7 +324,7 @@ function renderProviders(list) {
 
     if (c.kind === 'quota') {           // ElevenLabs — karakter kotası ($ yok)
       const q = c.quota || {};
-      const cls = q.pct == null ? 'none' : q.pct >= 90 ? 'crit' : q.pct >= 75 ? 'warn' : 'ok';
+      const cls = barClass(q.pct, GLOBAL_THRESHOLDS);
       const unit = q.unit || t('units');
       let body = `<div class="prov-stats">
         <div><span class="pl">${t('used')}</span><b>${fmtCount(q.used)}</b></div>
@@ -394,12 +417,10 @@ function renderGlance(spend, usage) {
   const maxLimit = limits.reduce((a, b) => (b.pct ?? 0) > (a.pct ?? 0) ? b : a);
   const pct = maxLimit.pct;
 
-  // Color code based on percentage
-  let colorClass = 'ok';
-  if (pct >= 90) colorClass = 'crit';
-  else if (pct >= 75) colorClass = 'warn';
-  else if (pct >= 50) colorClass = 'mid';
-  // else stays 'ok' (green)
+  // Color code based on percentage (GLOBAL_THRESHOLDS kullan)
+  let colorClass = barClass(pct, GLOBAL_THRESHOLDS);
+  if (colorClass === 'none') colorClass = 'ok';  // unknown → ok (yeşil)
+  // Glance'de 'mid' seviyesi yok, warn/crit/ok/none kullan
 
   // Determine which limit name
   let limitName = 'Limit';
@@ -419,7 +440,7 @@ function renderGlance(spend, usage) {
     <div class="glance-main">
       <div class="glance-metric">
         <div class="glance-label">${esc(limitName)}</div>
-        <div class="glance-pct ${colorClass}">${pct.toFixed(0)}%</div>
+        <div class="glance-pct ${colorClass}">${Math.round(pct)}%</div>
         <div class="glance-bar">
           <div class="glance-fill ${colorClass}" style="width:${Math.min(100, pct)}%"></div>
         </div>

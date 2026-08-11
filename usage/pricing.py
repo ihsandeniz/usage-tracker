@@ -1,27 +1,35 @@
 #!/usr/bin/env python3
 """
 Fiyat motoru — models.dev fiyat kataloğundan gerçek $ maliyet.
-  Kaynak: ~/.hermes/models_dev_cache.json  (Hermes CLI'ın günlük tazelediği 137-provider cache)
+  Kaynak: `usage/catalog.py` karar verir (kullanıcı cache → Hermes → gömülü snapshot).
   Fiyat birimi: USD / 1M token (input · output · cache_read · cache_write)
 
 Kataloğda OLMAYAN modeller (fable-5, sonnet-5 gibi yeni sürümler) için
 proje kökündeki price_overrides.json kullanılır ve source='estimate' işaretlenir.
 Böylece hiçbir maliyet sessizce uydurulmaz — tahmin olan tahmin olarak görünür.
 
-Stdlib-only. Dosya-mtime cache'li (Hermes cache değişince otomatik yeniden yükler).
+Bir override'ın **son kullanma tarihi** olabilir:
+    "claude-sonnet-5": { ...tanıtım fiyatı..., "until": "2026-08-31",
+                         "then": { ...liste fiyatı... } }
+`until` geçince `then` kendiliğinden devreye girer. Eskiden bu bilgi serbest metin bir
+`_note` alanındaydı ve birinin tarihi hatırlayıp dosyayı elle düzenlemesi gerekiyordu.
+
+Stdlib-only. Dosya-mtime cache'li (katalog kaynağı değişince otomatik yeniden yükler).
 """
 import json
 import sys
 import threading
+from datetime import date
 from pathlib import Path
 
-HERMES_CACHE = Path.home() / '.hermes' / 'models_dev_cache.json'
+from . import catalog
+
 OVERRIDES_PATH = Path(__file__).resolve().parent.parent / 'price_overrides.json'
 
 ZERO = {'input': 0.0, 'output': 0.0, 'cache_read': 0.0, 'cache_write': 0.0}
 
 _LOCK = threading.Lock()
-_CATALOG_CACHE = None          # (hermes_mtime, overrides_mtime, catalog_dict)
+_CATALOG_CACHE = None          # (key, catalog_dict)
 
 
 def _norm(model: str) -> str:
@@ -61,31 +69,22 @@ def _clean_cost(cost: dict) -> dict:
 
 
 def _build_catalog() -> dict:
-    """{'anthropic', 'all', 'by_provider', 'overrides', 'override_src', 'tier'} döndür."""
+    """{'anthropic', 'all', 'by_provider', 'overrides', 'override_src',
+        'override_sched', 'tier'} döndür."""
     anthropic, allm, overrides, override_src = {}, {}, {}, {}
+    override_sched = {}       # {model: (until_iso, then_cost, then_source)}
     by_provider = {}          # {provider: {modelid: cost}} — native fiyat (reseller markup'sız)
 
-    # 1) models.dev kataloğu
-    try:
-        raw = json.loads(HERMES_CACHE.read_text(encoding='utf-8'))
-    except Exception:
-        raw = {}
-    if isinstance(raw, dict):
-        for prov, pv in raw.items():
-            models = (pv or {}).get('models') if isinstance(pv, dict) else None
-            if not isinstance(models, dict):
-                continue
-            for mid, mv in models.items():
-                if not isinstance(mv, dict):
-                    continue
-                cost = _clean_cost(mv.get('cost'))
-                key = mid.strip().lower()
-                by_provider.setdefault(prov, {}).setdefault(key, cost)
-                # anthropic-native fiyatları ayrı tut (openrouter vb. markup'tan kaçın)
-                if prov == 'anthropic':
-                    anthropic[key] = cost
-                # ilk gelen kazanır (aynı id farklı provider'da tekrar edebilir)
-                allm.setdefault(key, cost)
+    # 1) fiyat kataloğu — kaynağa catalog.py karar verir (kullanıcı/Hermes/gömülü)
+    for prov, models in catalog.load()['providers'].items():
+        for key, raw_cost in models.items():
+            cost = _clean_cost(raw_cost)
+            by_provider.setdefault(prov, {}).setdefault(key, cost)
+            # anthropic-native fiyatları ayrı tut (openrouter vb. markup'tan kaçın)
+            if prov == 'anthropic':
+                anthropic[key] = cost
+            # ilk gelen kazanır (aynı id farklı provider'da tekrar edebilir)
+            allm.setdefault(key, cost)
 
     # 2) kullanıcı override'ları (kataloğda olmayan yeni modeller)
     try:
@@ -99,9 +98,16 @@ def _build_catalog() -> dict:
                     overrides[key] = _clean_cost(v)
                     # source: 'official' (doğrulanmış → gerçek sayılır) | 'estimate' (tahmin)
                     override_src[key] = v.get('source', 'estimate')
+                    # tarih kontrollü fiyat: 'until' geçince 'then' devreye girer
+                    then, until = v.get('then'), v.get('until')
+                    if isinstance(then, dict) and isinstance(until, str):
+                        override_sched[key] = (until.strip()[:10], _clean_cost(then),
+                                               then.get('source', override_src[key]))
     except FileNotFoundError:
         # Dosya yoksa OK — override yok
         pass
+    except OSError as e:
+        print(f'warning: price_overrides.json okunamadı: {e}', file=sys.stderr)
     except json.JSONDecodeError as e:
         # JSON syntax hatası — uyarı ver ama devam et
         print(f'warning: price_overrides.json parse hatası: {e}', file=sys.stderr)
@@ -121,27 +127,56 @@ def _build_catalog() -> dict:
         'fable':  pick('claude-fable-5', default=dict(ZERO)),
     }
     return {'anthropic': anthropic, 'all': allm, 'by_provider': by_provider,
-            'overrides': overrides, 'override_src': override_src, 'tier': tier}
+            'overrides': overrides, 'override_src': override_src,
+            'override_sched': override_sched, 'tier': tier}
+
+
+def _cache_key():
+    src = catalog.load()
+    return (src['source'], src['meta'].get('generatedAt'),
+            sum(len(m) for m in src['providers'].values()), _mtime(OVERRIDES_PATH))
+
+
+def invalidate() -> None:
+    """Cache'i düşür. Testler yolları değiştirdikten sonra çağırır."""
+    global _CATALOG_CACHE
+    with _LOCK:
+        _CATALOG_CACHE = None
+    catalog.invalidate()
+
+
+def catalog_status() -> dict:
+    """Fiyatların hangi kaynaktan geldiği + uyarı. Sunucu bunu wire'a taşır."""
+    return catalog.status()
 
 
 def _catalog() -> dict:
     global _CATALOG_CACHE
-    hm, om = _mtime(HERMES_CACHE), _mtime(OVERRIDES_PATH)
+    key = _cache_key()
     with _LOCK:
-        if _CATALOG_CACHE and _CATALOG_CACHE[0] == hm and _CATALOG_CACHE[1] == om:
-            return _CATALOG_CACHE[2]
+        if _CATALOG_CACHE and _CATALOG_CACHE[0] == key:
+            return _CATALOG_CACHE[1]
         cat = _build_catalog()
-        _CATALOG_CACHE = (hm, om, cat)
+        _CATALOG_CACHE = (key, cat)
         return cat
 
 
-def resolve_price(model: str):
-    """(cost_dict, source) döndür. source ∈ {'catalog','estimate','free','unknown'}."""
+def resolve_price(model: str, today: date = None):
+    """(cost_dict, source) döndür. source ∈ {'catalog','official','estimate','free','unknown'}.
+
+    `today` yalnız tarih kontrollü override'lar için — testler sabitler, üretimde bugündür.
+    """
     norm = _norm(model)
     if norm in ('', '<synthetic>', 'synthetic'):
         return dict(ZERO), 'free'
     cat = _catalog()
     if norm in cat['overrides']:                       # override: source 'official' | 'estimate'
+        sched = cat['override_sched'].get(norm)
+        if sched:
+            until, then_cost, then_src = sched
+            # 'until' dahildir: o günün sonuna kadar eski fiyat geçerli
+            if (today or date.today()).isoformat() > until:
+                return then_cost, then_src
         return cat['overrides'][norm], cat['override_src'].get(norm, 'estimate')
     if norm in cat['anthropic']:
         return cat['anthropic'][norm], 'catalog'

@@ -25,6 +25,10 @@ USAGE_URL  = 'https://api.anthropic.com/api/oauth/usage'
 BETA       = 'oauth-2025-04-20'
 UA         = 'claude-cli/2.1.197 (external, cli)'
 CACHE_TTL  = 120.0          # sn — bu süre içinde tekrar çağrı ağı vurmaz (429 koruması)
+# En kısa kota penceresi 5 saat. 10 dakika, bu pencerenin yaklaşık %3'ü ve
+# normal 2 dakikalık cache TTL'inin 5 katı: kısa kesintileri tolere ederken
+# saatler/günler önceki bir yüzdeyi "canlı" saymaz.
+LIVE_FRESHNESS_SEC = 10 * 60.0
 
 _LOCK  = threading.Lock()
 _CACHE = None               # (fetched_at, result_dict)
@@ -140,6 +144,16 @@ def _save_disk_cache(at: float, res: dict):
         pass                    # cache lüks; yazamazsak sessizce devam
 
 
+def _with_freshness(res: dict, fetched_at: float, now: float) -> dict:
+    """Son başarılı ağ yanıtının zamanını ve türetilmiş yaşını ekle."""
+    out = dict(res)
+    age = round(max(0.0, now - fetched_at), 1)
+    out['fetchedAtMs'] = int(fetched_at * 1000)
+    out['ageSec'] = age
+    out['stale'] = age > LIVE_FRESHNESS_SEC
+    return out
+
+
 def fetch(force: bool = False) -> dict:
     """TTL-cache'li canlı limit. force=True cache'i atlar (dikkat: 429 riski)."""
     import os
@@ -157,21 +171,26 @@ def fetch(force: bool = False) -> dict:
         if _CACHE is None:
             _CACHE = _load_disk_cache()      # restart sonrası ilk çağrı
         if _CACHE and not force and (now - _CACHE[0]) < CACHE_TTL:
-            res = dict(_CACHE[1]); res['cached'] = True
-            res['ageSec'] = round(now - _CACHE[0], 1)
+            res = _with_freshness(_CACHE[1], _CACHE[0], now)
+            res['cached'] = True
             return res
     res = _fetch_raw()
     with _LOCK:
         # başarılı sonucu cache'le; başarısızsa son iyi sonucu koru ama hatayı da bildir
         if res.get('ok'):
-            _CACHE = (now, res)
-            _save_disk_cache(now, res)
+            # İstek başlatıldığı an değil, veri gerçekten alındıktan sonraki an.
+            fetched_at = time.time()
+            _CACHE = (fetched_at, res)
+            _save_disk_cache(fetched_at, res)
+            res = _with_freshness(res, fetched_at, fetched_at)
         elif _CACHE:
             stale = dict(_CACHE[1])
-            stale.update({'ok': True, 'stale': True, 'staleReason': res.get('error'),
-                          'ageSec': round(now - _CACHE[0], 1)})
-            return stale
+            stale.update({'ok': True, 'cached': True, 'staleReason': res.get('error')})
+            return _with_freshness(stale, _CACHE[0], now)
     res['cached'] = False
+    if not res.get('ok'):
+        # Başarılı temel veri yok; yaş hesabı uygulanamaz. `ok` zaten yokluğu ayırır.
+        res.update({'fetchedAtMs': None, 'ageSec': None, 'stale': False})
     return res
 
 

@@ -1,8 +1,14 @@
 {
-  "_note": "models.dev kataloğunda (~/.hermes/models_dev_cache.json) OLMAYAN modeller. Fiyat USD / 1M token. source='official' → platform.claude.com/docs/en/about-claude/pricing'den doğrulandı (2026-07-17, GERÇEK). source='estimate' → doğrulanmamış tahmin.",
-  "_sonnet5_uyari": "Sonnet 5 tanıtım fiyatı 31 Ağu 2026'ya kadar $2/$10; 1 Eyl'den itibaren $3/$15/$0.30/$3.75 olacak — o tarihte güncelle.",
+  "_note": "models.dev kataloğunda OLMAYAN modeller. Fiyat USD / 1M token. source='official' → platform.claude.com/docs/en/about-claude/pricing'den doğrulandı (2026-07-17, GERÇEK). source='estimate' → doğrulanmamış tahmin.",
+  "_schema": "Bir girdi 'until' (YYYY-MM-DD, DAHİL) + 'then' taşıyabilir: o tarih geçince 'then' fiyatı kendiliğinden devreye girer. Böylece bilinen bir fiyat değişimi için kimsenin takvime not düşmesi gerekmez.",
   "_fastmode_uyari": "Opus 4.8 fast mode ($10/$50) ve 1M-context premium transcript model alanında görünmez → ayrıştırılamaz, standart fiyattan hesaplanır (gerçek fatura biraz daha yüksek olabilir).",
 
   "claude-fable-5":  { "input": 10, "output": 50, "cache_read": 1.0,  "cache_write": 12.5, "source": "official" },
-  "claude-sonnet-5": { "input": 2,  "output": 10, "cache_read": 0.2,  "cache_write": 2.5,  "source": "official" }
+
+  "claude-sonnet-5": {
+    "input": 2, "output": 10, "cache_read": 0.2, "cache_write": 2.5, "source": "official",
+    "_why": "Tanıtım fiyatı — 2026-08-31 dahil geçerli, 1 Eylül'den itibaren liste fiyatına döner.",
+    "until": "2026-08-31",
+    "then": { "input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75, "source": "official" }
+  }
 }
