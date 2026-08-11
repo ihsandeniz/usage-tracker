@@ -201,15 +201,45 @@ class Handler(BaseHTTPRequestHandler):
         self._error(404, 'endpoint not found')
 
 
-def main():
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+
+    if '--version' in argv or '-V' in argv:
+        # Tek kaynak: VERSION. `git tag` ile hizalı olduğunu CI doğrular (.github/workflows/ci.yml)
+        print(f'usage-tracker {VERSION}')
+        return 0
+
+    if '--help' in argv or '-h' in argv:
+        print(f'usage-tracker {VERSION} — AI kullanım/limit/harcama izleyici\n'
+              f'\n'
+              f'  python3 server.py            panel sunucusu (http://{HOST}:{PORT})\n'
+              f'  python3 server.py --version  sürüm\n'
+              f'\n'
+              f'Ortam:\n'
+              f'  USAGE_PORT   port (varsayılan 8770)\n'
+              f'  USAGE_DEMO=1 sentetik demo verisi\n'
+              f'  USAGE_PRICES fiyat kataloğu dosyası (bkz. python3 -m usage.catalog)\n')
+        return 0
+
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f'usage-tracker → http://{HOST}:{PORT}  (Ctrl+C ile durdur)')
+    print(f'usage-tracker {VERSION} → http://{HOST}:{PORT}  (Ctrl+C ile durdur)')
+
+    # Fiyat kataloğu eksik/bayatsa başlangıçta söyle — panelde görünmesini beklemeden.
+    try:
+        from usage import pricing
+        warning = (pricing.catalog_status() or {}).get('warning')
+        if warning:
+            print(f'⚠️  {warning}', file=sys.stderr)
+    except Exception:                      # katalog uyarısı hiçbir zaman sunucuyu düşürmesin
+        pass
+
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print('\ndurduruldu.')
         srv.shutdown()
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

@@ -152,6 +152,9 @@ Trust matters, so every number is labelled by source — nothing is silently mad
 
 - **Token counts: 100% real** — read from transcripts, not estimated.
 - **Prices: real** — Opus/Sonnet/Haiku from the [models.dev](https://models.dev) catalog (`source: catalog`); models not yet in the catalog use official vendor pricing (`source: official`). Anything unverified is flagged `source: estimate`.
+- **Prices work offline, out of the box** — a models.dev snapshot ships inside the repo, so a fresh clone prices your usage on the first run with no network and no other tool installed. Refresh it whenever you like: `python3 -m usage.catalog --update`. Run `python3 -m usage.catalog` to see which source is in use and how old it is.
+- **A model nobody has priced is not counted as $0.** Its tokens are reported separately in `unknownPriceModels` and left out of the totals, so a total that is incomplete says so instead of quietly looking finished.
+- **A scan that stopped early says so** — the local-log adapters cap how much they read; when they hit that cap the card reads `partial` and explains itself, rather than presenting a truncated number as your usage.
 - **Limits: real, no calibration** — pulled from the same endpoint Claude Code's `/usage` uses.
 - **If you're on a subscription (Max, ChatGPT Plus…),** the $ figure is the **API-equivalent cost** (what this usage would cost pay-as-you-go) = the value you're getting from the subscription. Your actual bill is the flat fee, not this number.
 - **Can't be separated:** Opus fast-mode and 1M-context premium pricing don't appear in the transcript's model field, so they're computed at standard rates (real cost may be slightly higher).
@@ -223,6 +226,10 @@ Provider adapters live in `usage/providers/`. Each module exposes `collect(days)
 | `GET /api/providers` | Multi-provider cards |
 | `GET /v1/usage` | Stable wire-format (`schema: usage/v1`) — used by the waybar feeder |
 
+`/v1/usage` is a public contract, not an internal detail: four surfaces here read it and so may
+your scripts. The fields, the compatibility rules and what changed when are in
+[`docs/WIRE.md`](docs/WIRE.md).
+
 ## Security & privacy
 
 - Binds **`127.0.0.1` only** — never exposed to the network.
@@ -233,9 +240,16 @@ Provider adapters live in `usage/providers/`. Each module exposes `collect(days)
 ## Development
 
 ```bash
-python3 -m usage.pricing    # price-resolution spot-check
-python3 -m usage.engine     # limits + $ summary from real transcripts (no server)
+python3 -m unittest discover -s tests -t .   # the test suite — stdlib only, nothing to install
+python3 server.py --version                  # single source of truth, CI checks it against the git tag
+python3 -m usage.pricing                     # price-resolution spot-check
+python3 -m usage.engine                      # limits + $ summary from real transcripts (no server)
+python3 -m usage.catalog                     # which price catalogue is in use, and how old
 ```
+
+The test suite has **no test dependencies** — same promise as the runtime. CI runs it on Ubuntu
+and Windows, on Python 3.9 and 3.13, with no install step. Read `tests/README.md` before adding
+to it; the short version is *write the failing test first, and assert the number, not the shape*.
 
 ## Roadmap
 

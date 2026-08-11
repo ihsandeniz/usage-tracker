@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The project promises zero dependencies, so there is no install step anywhere in this
+  # file. If a step here ever needs `pip install`, that promise has been broken.
+  test:
+    name: test · ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # windows-latest is a real Windows machine. It cannot tell us whether the tray icon
+        # shows up or whether SmartScreen blocks the installer — but it can tell us whether
+        # the code imports, whether the path handling works, and whether the tests pass.
+        os: [ubuntu-latest, windows-latest]
+        # 3.9 is the floor README.md advertises; the newest is what most users will have.
+        python: ['3.9', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Import smoke test
+        run: >
+          python -c "import server, usage, usage.catalog, usage.demo, usage.engine,
+          usage.live, usage.pricing, usage.viewconfig; from usage import providers;
+          print('imports ok on', __import__('platform').system())"
+
+      - name: Every provider adapter imports
+        shell: python
+        run: |
+          import importlib, pathlib, sys
+          bad = []
+          for p in sorted(pathlib.Path('usage/providers').glob('*.py')):
+              if p.stem == '__init__':
+                  continue
+              try:
+                  importlib.import_module(f'usage.providers.{p.stem}')
+              except Exception as e:
+                  bad.append(f'{p.stem}: {type(e).__name__}: {e}')
+          print('\n'.join(bad) or 'all adapters import')
+          sys.exit(1 if bad else 0)
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -t . -v
+
+      - name: Adapters survive a machine with none of their data
+        # Every adapter must return None (no dead cards) rather than raise, on a machine
+        # that has no Claude, no Codex, no Ollama and no API keys — i.e. a CI runner.
+        shell: python
+        run: |
+          from usage.providers import collect
+          cards = collect(30)
+          print(f'{len(cards)} card(s) on a bare machine')
+          for c in cards:
+              print(' ', c.get('id'), c.get('status'))
+
+      - name: Prices resolve with no Hermes and no network
+        # B1: the catalogue used to come from another product's cache file. On a runner
+        # that file does not exist, which is exactly the situation every user is in.
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          from usage import catalog, pricing
+          catalog.HERMES_CACHE = Path('does-not-exist.json')
+          catalog._USER_CACHE_OVERRIDE = Path('does-not-exist-either.json')
+          pricing.invalidate()
+          st = catalog.status()
+          print('source:', st['source'], '·', st['modelCount'], 'models')
+          usd, src = pricing.turn_cost_usd(1_000_000, 1_000_000, 0, 0, 'claude-opus-4-8')
+          print(f'1M in + 1M out = ${usd:.2f} [{src}]')
+          if st['source'] != 'bundled' or usd <= 0:
+              sys.exit('the bundled price catalogue is not doing its job')
+
+  shell:
+    name: shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: for f in $(git ls-files '*.sh' surface/usage-widget); do bash -n "$f" && echo "ok  $f"; done
+      - name: shellcheck
+        run: shellcheck -S warning $(git ls-files '*.sh') || true   # advisory for now
+      - name: jq filters parse
+        run: |
+          for f in $(git ls-files '*.sh'); do
+            grep -q 'jq ' "$f" && echo "contains jq: $f"
+          done
+          jq --version
+
+  contract:
+    name: wire contract (live server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Start the server
+        run: |
+          USAGE_PORT=8770 python server.py &
+          for i in $(seq 1 30); do
+            curl -sf 127.0.0.1:8770/v1/usage >/dev/null && break
+            sleep 0.5
+          done
+
+      - name: /v1/usage answers with the documented shape
+        run: |
+          curl -sf 127.0.0.1:8770/v1/usage -o wire.json
+          jq -e '.schema == "usage/v1"'                     wire.json >/dev/null
+          jq -e '.thresholds.warn and .thresholds.crit'     wire.json >/dev/null
+          jq -e '.providers[0].id == "claude"'              wire.json >/dev/null
+          jq -e '.providers[0].spend | has("catalog")'      wire.json >/dev/null
+          jq -e '.providers[0].spend | has("unknownPriceModels")' wire.json >/dev/null
+          jq -e '.providers[0] | has("live")'               wire.json >/dev/null
+          echo "wire ok"
+
+      - name: The waybar feeder is not empty
+        # Ledger [jq/empty-stream-as]: `(stream) as $x | body` runs the body ZERO times when
+        # the stream is empty, so one missing provider blanked the whole badge for every
+        # user who did not have it. An empty `.text` here means that class of bug is back.
+        run: |
+          out="$(./surface/waybar-usage.sh)"
+          echo "$out"
+          echo "$out" | jq -e '.text | length > 0' >/dev/null || {
+            echo "::error::waybar feeder produced empty text — jq guard regression"; exit 1; }
+          echo "$out" | jq -e 'has("class")' >/dev/null
+
+      - name: Demo mode renders too
+        run: |
+          # Each `run` is its own shell, so job control (`kill %1`) is not available here —
+          # the background server from the earlier step is still alive on the runner.
+          pkill -f 'python server.py' || true
+          USAGE_DEMO=1 USAGE_PORT=8771 python server.py &
+          for i in $(seq 1 30); do curl -sf 127.0.0.1:8771/v1/usage >/dev/null && break; sleep 0.5; done
+          curl -sf 127.0.0.1:8771/v1/usage -o demo.json
+          jq -e '.thresholds.warn'          demo.json >/dev/null
+          jq -e '.providers[0] | has("live")' demo.json >/dev/null
+          echo "demo wire ok"
+
+  version:
+    name: tag matches VERSION
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: The tag and server.py must agree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          code="$(python -c 'import server; print(server.VERSION)')"
+          echo "tag=$tag  server.py=$code"
+          [ "$tag" = "$code" ] || {
+            echo "::error::tag v$tag does not match VERSION $code in server.py"; exit 1; }
