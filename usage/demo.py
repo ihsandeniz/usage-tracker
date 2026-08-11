@@ -326,15 +326,19 @@ def collect(days: int = 30) -> list:
             'note': 'Organizasyon Costs API (demo).',
             'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
         },
-        # Together AI: sadece bakiye (balance-only spend kartı)
+        # Together AI: anahtar geçerli ama sağlayıcı okunacak bir şey yayınlamıyor.
+        # Demo, ürünün YAPABİLDİĞİNİ göstermeli — yapamadığını değil. Eskiden burada
+        # $23.45 bakiye vardı; Together'ın böyle bir ucu yok (2026-08-11 ölçümü,
+        # 7 yol 404) ve demo bunu vaat ederse ilk gerçek kullanıcıda yalan çıkar.
+        # 'nodata' aynı zamanda panelin uzun-kuyruk bölümünü de egzersiz eder.
         {
             'id': 'together',
             'name': 'Together AI',
             'kind': 'spend',
-            'status': 'ok',
+            'status': 'nodata',
             'currency': 'USD',
             'tier': 'paid',
-            'balance': {'remaining': 23.45},
+            'note': 'Anahtar geçerli. Together AI kullanım/bakiye ucu yayınlamıyor.',
             'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
         },
         # LM Studio: yerel, sunucu açık (local ok)
