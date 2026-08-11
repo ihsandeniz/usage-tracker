@@ -183,9 +183,35 @@ button{cursor:pointer;font-family:inherit}
 .pill.good{color:var(--green);border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.07)}
 .pill.warn{color:var(--amber);border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.07)}
 
-/* ── çok-sağlayıcı (FAZ 2) ── */
+/* ── çok-sağlayıcı (FAZ 2) + gruplama/arama (FAZ 3 §3) ── */
 .providers{grid-column:1/-1}
+
+/* Arama kutusu */
+.prov-search-wrap{margin-bottom:16px}
+.prov-search{width:100%;padding:10px 14px;background:var(--card2);border:1px solid var(--line);
+  border-radius:9px;color:var(--txt);font:inherit;font-size:14px}
+.prov-search:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,.12)}
+.prov-search::placeholder{color:var(--muted)}
+
+/* Kategori sekmeleri */
+.prov-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.prov-tab{background:var(--card2);border:1px solid var(--line);color:var(--muted2);
+  padding:8px 14px;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;
+  transition:border-color .2s,background .2s;text-transform:uppercase;letter-spacing:.3px}
+.prov-tab:hover{border-color:var(--cyan);background:rgba(34,211,238,.08)}
+.prov-tab.active{border-color:var(--cyan);background:rgba(34,211,238,.12);color:var(--cyan)}
+
+/* Ana kart ızgarası */
 .prov-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+/* Uzun kuyruk grubu (FAZ 3 §3) */
+.prov-longtrail{margin-top:20px;padding-top:20px;border-top:1px solid var(--line)}
+.prov-longtrail-head{cursor:pointer;font-size:13px;color:var(--cyan);font-weight:600;
+  display:flex;align-items:center;user-select:none}
+.prov-longtrail-head::before{content:'▶ ';display:inline-block;margin-right:6px;
+  transition:transform .2s;width:6px;text-align:center}
+.prov-longtrail[open] .prov-longtrail-head::before{transform:rotate(90deg)}
+.prov-longtrail-cards{margin-top:14px}
+
 .prov{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:14px 15px;
   position:relative;overflow:hidden}
 .prov::before{content:'';position:absolute;inset:0 auto 0 0;width:3px;

@@ -22,7 +22,9 @@ const I18N = {
     pageTitle: 'usage-tracker · Claude usage & spending',
     provNote: 'An unconfigured provider opens no card. OpenRouter=real $ · Codex=subscription (API-equivalent $) · Ollama=local/free.',
     viewNote: 'Show the checked providers; unchecked ones are hidden from the panel/waybar/widget.',
-    footerSrc: 'source: ~/.claude/projects + ~/.codex + OpenRouter API (read-only)'
+    footerSrc: 'source: ~/.claude/projects + ~/.codex + OpenRouter API (read-only)',
+    provSearchPlaceholder: 'Search provider name...', provTabAll: 'All', provTabActive: 'Active',
+    provTabApi: 'API key', provTabLocal: 'On disk', provNoMatch: 'No matches'
   },
   tr: {
     spend: 'Gerçek Harcama', limits: 'Claude Limitleri', calibration: 'Kalibrasyon (yedek)', view: 'Görünüm',
@@ -41,7 +43,9 @@ const I18N = {
     pageTitle: 'usage-tracker · Claude kullanım & harcama',
     provNote: 'Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.',
     viewNote: 'İşaretli sağlayıcıları göster; işaretsiz olanlar panel/waybar/widget\'tan gizlenir.',
-    footerSrc: 'kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)'
+    footerSrc: 'kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)',
+    provSearchPlaceholder: 'Sağlayıcı adı ara...', provTabAll: 'Hepsi', provTabActive: 'Aktif',
+    provTabApi: 'API anahtarı', provTabLocal: 'Diskten', provNoMatch: 'Eşleşme yok'
   }
 };
 
@@ -268,75 +272,120 @@ function provSpark(days, gold) {
     return `<div class="bar${gold && d.day === last ? ' today' : ''}" style="height:${h}%" title="${esc(d.day)}: ${fmtUsd(d.usd)}"></div>`;
   }).join('')}</div>`;
 }
+// ── FAZ 3 §3: sağlayıcı kategorisi ve durumu ──────────────────────────────
+function categorizeProvider(c) {
+  return { kind: c.kind, status: c.status };
+}
+
+function matchesSearchQuery(c, query) {
+  if (!query.trim()) return true;
+  const q = query.toLowerCase();
+  return c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q);
+}
+
+function filterProviders(list, selectedTab, searchQuery) {
+  // searchQuery'ye göre filtrele
+  let filtered = list.filter(c => matchesSearchQuery(c, searchQuery));
+
+  // Kategori sekmesine göre filtrele
+  if (selectedTab === 'active') {
+    filtered = filtered.filter(c => c.status === 'ok' || c.status === 'partial');
+  } else if (selectedTab === 'api') {
+    // API: sağlayıcının ucuna gidiyoruz, ANAHTAR gerekiyor. spend ($) + quota (kota).
+    filtered = filtered.filter(c => ['spend', 'quota'].includes(c.kind));
+  } else if (selectedTab === 'local') {
+    // Yerel: veri DİSKTEN geliyor, anahtar gerekmiyor.
+    //   'local'  → yerel çalıştırıcı (Ollama/LM Studio/Jan)
+    //   'tokens' → bulut aracının yerel logu (Codex/Aider/Continue/Cody/Windsurf)
+    // 'tokens'ı API sekmesine koymak somut zarar verir: kartı görünmeyen kullanıcı,
+    // var olmayan bir API anahtarını aramaya çıkar. Sekmenin cevapladığı soru
+    // "bu veri nereden geliyor" — ikisinde de cevap: diskten.
+    filtered = filtered.filter(c => ['local', 'tokens'].includes(c.kind));
+  }
+  // selectedTab === 'all' ise hepsi
+
+  // nodata/offline kartlarını uzun kuyruk'a ayır
+  const main = filtered.filter(c => !(c.status === 'nodata' || c.status === 'offline'));
+  const longtrail = filtered.filter(c => c.status === 'nodata' || c.status === 'offline');
+
+  return { main, longtrail };
+}
+
+function renderProviderCard(c) {
+  if (c.status === 'error')
+    return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || t('unreachable'))}</div>`);
+
+  if (c.status === 'partial')
+    return provShell(c, `<div class="prov-note warn">⚠ ${esc(c.note || 'Tarama eksik (truncated)')}</div>`);
+
+  if (c.kind === 'spend') {           // OpenRouter/OpenAI — gerçek $ (bazıları sadece bakiye)
+    const sp = c.spend || {}, bal = c.balance, lim = c.limit;
+    const cells = [];
+    if (sp.today != null) cells.push(`<div><span class="pl">${t('today')}</span><b>${fmtUsd(sp.today, c.currency)}</b></div>`);
+    if (sp.month != null) cells.push(`<div><span class="pl">${t('month')}</span><b class="gold">${fmtUsd(sp.month, c.currency)}</b></div>`);
+    if (bal) cells.push(`<div><span class="pl">${t('credit')}</span><b>${fmtUsd(bal.remaining, c.currency)}</b></div>`);
+    if (!cells.length) cells.push(`<div><span class="pl muted">${t('noData')}</span><b>—</b></div>`);
+    let body = `<div class="prov-stats">${cells.join('')}</div>`;
+    if (lim) {
+      const cls = barClass(lim.pct, GLOBAL_THRESHOLDS);
+      body += `<div class="prov-limit"><div class="pl-row"><span>${t('dailyLimit')} (${esc(lim.reset || '')})</span>
+        <span>${fmtUsd(lim.used, c.currency)} / ${fmtUsd(lim.amount, c.currency)}</span></div>${provMiniBar(lim.pct, cls)}</div>`;
+    }
+    return provShell(c, body);
+  }
+
+  if (c.kind === 'tokens') {          // Codex — abonelik, token + $ tahmini
+    const tk = c.tokens || {}, tot = c.total || {}, td = c.today || {};
+    const srcCls = c.usdSource === 'catalog' ? 'catalog' : 'estimate';
+    return provShell(c, `<div class="prov-stats">
+      <div><span class="pl">${c.windowDays}g token</span><b>${fmtTok(tk.total)}</b></div>
+      <div><span class="pl">≈ maliyet <span class="src ${srcCls}">${esc(c.usdSource)}</span></span><b class="gold">${fmtUsd(tot.usd, c.currency)}</b></div>
+      <div><span class="pl">${t('today')}</span><b>${fmtTok(td.tokens)} · ${fmtUsd(td.usd, c.currency)}</b></div>
+    </div>
+    ${provSpark(c.byDay, true)}
+    <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} ${t('session')} · ${esc(c.auth)}</span></div>`);
+  }
+
+  if (c.kind === 'local') {           // Ollama — yerel
+    if (c.status === 'offline')
+      return provShell(c, `<div class="prov-err off">● ${t('offline')} — <code>ollama serve</code></div>`);
+    const run = (c.running || []).length;
+    return provShell(c, `<div class="prov-stats">
+      <div><span class="pl">${t('modelCount')}</span><b>${c.modelCount || 0}</b></div>
+      <div><span class="pl">${t('used')}</span><b class="${run ? 'gold' : ''}">${run}</b></div>
+    </div>
+    <div class="prov-models">${(c.models || []).slice(0, 4).map(m =>
+      `<span class="chip">${esc(m.name)} <small>${fmtSize(m.size)}</small></span>`).join('') || `<span class="muted">${t('noData')}</span>`}</div>`);
+  }
+
+  if (c.kind === 'quota') {           // ElevenLabs — karakter kotası ($ yok)
+    const q = c.quota || {};
+    const cls = barClass(q.pct, GLOBAL_THRESHOLDS);
+    const unit = q.unit || t('units');
+    let body = `<div class="prov-stats">
+      <div><span class="pl">${t('used')}</span><b>${fmtCount(q.used)}</b></div>
+      <div><span class="pl">Kalan</span><b class="gold">${fmtCount(q.remaining)}</b></div>
+    </div>
+    <div class="prov-limit"><div class="pl-row"><span>Aylık ${esc(unit)} (${q.pct == null ? '—' : q.pct + '%'})</span>
+      <span>${fmtCount(q.used)} / ${fmtCount(q.limit)}</span></div>${provMiniBar(q.pct, cls)}</div>`;
+    if (q.reset) body += `<div class="pl-row muted"><span>Sıfırlanma</span><span>${fmtResetUnix(q.reset)}</span></div>`;
+    return provShell(c, body);
+  }
+  return provShell(c, '');
+}
+
 function renderProviders(list) {
+  // Global state güncelle
+  currentProviders = list;
+
+  // Bayrak güncelle
   const flag = $('prov-flag');
   const okCount = list.filter(c => c.status === 'ok').length;
   flag.textContent = list.length ? `${okCount}/${list.length} aktif` : 'sağlayıcı yok';
   flag.className = 'pill' + (okCount ? ' good' : '');
 
-  $('provider-cards').innerHTML = list.map(c => {
-    if (c.status === 'error')
-      return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || t('unreachable'))}</div>`);
-
-    if (c.status === 'partial')
-      // partial = ok gibi render et ama note varsa göster (truncated uyarısı içinde)
-      return provShell(c, `<div class="prov-note warn">⚠ ${esc(c.note || 'Tarama eksik (truncated)')}</div>`);
-
-    if (c.kind === 'spend') {           // OpenRouter/OpenAI — gerçek $ (bazıları sadece bakiye)
-      const sp = c.spend || {}, bal = c.balance, lim = c.limit;
-      const cells = [];
-      if (sp.today != null) cells.push(`<div><span class="pl">${t('today')}</span><b>${fmtUsd(sp.today)}</b></div>`);
-      if (sp.month != null) cells.push(`<div><span class="pl">${t('month')}</span><b class="gold">${fmtUsd(sp.month)}</b></div>`);
-      if (bal) cells.push(`<div><span class="pl">${t('credit')}</span><b>${fmtUsd(bal.remaining)}</b></div>`);
-      if (!cells.length) cells.push(`<div><span class="pl muted">${t('noData')}</span><b>—</b></div>`);
-      let body = `<div class="prov-stats">${cells.join('')}</div>`;
-      if (lim) {
-        const cls = barClass(lim.pct, GLOBAL_THRESHOLDS);
-        body += `<div class="prov-limit"><div class="pl-row"><span>${t('dailyLimit')} (${esc(lim.reset || '')})</span>
-          <span>${fmtUsd(lim.used, c.currency)} / ${fmtUsd(lim.amount, c.currency)}</span></div>${provMiniBar(lim.pct, cls)}</div>`;
-      }
-      return provShell(c, body);
-    }
-
-    if (c.kind === 'tokens') {          // Codex — abonelik, token + $ tahmini
-      const tk = c.tokens || {}, tot = c.total || {}, td = c.today || {};
-      const srcCls = c.usdSource === 'catalog' ? 'catalog' : 'estimate';
-      return provShell(c, `<div class="prov-stats">
-        <div><span class="pl">${c.windowDays}g token</span><b>${fmtTok(tk.total)}</b></div>
-        <div><span class="pl">≈ maliyet <span class="src ${srcCls}">${esc(c.usdSource)}</span></span><b class="gold">${fmtUsd(tot.usd)}</b></div>
-        <div><span class="pl">${t('today')}</span><b>${fmtTok(td.tokens)} · ${fmtUsd(td.usd)}</b></div>
-      </div>
-      ${provSpark(c.byDay, true)}
-      <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} ${t('session')} · ${esc(c.auth)}</span></div>`);
-    }
-
-    if (c.kind === 'local') {           // Ollama — yerel
-      if (c.status === 'offline')
-        return provShell(c, `<div class="prov-err off">● ${t('offline')} — <code>ollama serve</code></div>`);
-      const run = (c.running || []).length;
-      return provShell(c, `<div class="prov-stats">
-        <div><span class="pl">${t('modelCount')}</span><b>${c.modelCount || 0}</b></div>
-        <div><span class="pl">${t('used')}</span><b class="${run ? 'gold' : ''}">${run}</b></div>
-      </div>
-      <div class="prov-models">${(c.models || []).slice(0, 4).map(m =>
-        `<span class="chip">${esc(m.name)} <small>${fmtSize(m.size)}</small></span>`).join('') || `<span class="muted">${t('noData')}</span>`}</div>`);
-    }
-
-    if (c.kind === 'quota') {           // ElevenLabs — karakter kotası ($ yok)
-      const q = c.quota || {};
-      const cls = barClass(q.pct, GLOBAL_THRESHOLDS);
-      const unit = q.unit || t('units');
-      let body = `<div class="prov-stats">
-        <div><span class="pl">${t('used')}</span><b>${fmtCount(q.used)}</b></div>
-        <div><span class="pl">Kalan</span><b class="gold">${fmtCount(q.remaining)}</b></div>
-      </div>
-      <div class="prov-limit"><div class="pl-row"><span>Aylık ${esc(unit)} (${q.pct == null ? '—' : q.pct + '%'})</span>
-        <span>${fmtCount(q.used)} / ${fmtCount(q.limit)}</span></div>${provMiniBar(q.pct, cls)}</div>`;
-      if (q.reset) body += `<div class="pl-row muted"><span>Sıfırlanma</span><span>${fmtResetUnix(q.reset)}</span></div>`;
-      return provShell(c, body);
-    }
-    return provShell(c, '');
-  }).join('') || '<div class="muted">Yapılandırılmış başka sağlayıcı yok.</div>';
+  // Filtrele ve render et
+  updateProviderDisplay();
 }
 function provShell(c, body) {
   const dot = c.status === 'ok' ? 'ok' : c.status === 'offline' ? 'off' : 'err';
@@ -389,8 +438,9 @@ async function refresh() {
     } else {
       renderSpend(spend);
       renderLimits(usage);
-      renderProviders(prov.providers || []);
-      renderGlanceStrip(usage, prov.providers || []);
+      currentProviders = prov.providers || [];  // Global state güncelle
+      renderProviders(currentProviders);
+      renderGlanceStrip(usage, currentProviders);
     }
   } catch (e) {
     $('updated').textContent = 'hata: ' + e.message;
@@ -518,6 +568,71 @@ async function submitViewConfig() {
     msg.textContent = '✗ ' + e.message;
     msg.className = 'pill warn';
   }
+}
+
+// ── FAZ 3 §3: Sekme ve arama event listener'ları ──────────────────────────────
+let currentProviders = [];  // Global state: mevcut sağlayıcı listesi
+
+function updateProviderDisplay() {
+  const savedTab = localStorage.getItem('ut.panel.tab.v1') || 'all';
+  const savedSearch = localStorage.getItem('ut.panel.search.v1') || '';
+
+  // Sekmeleri aktifleştir
+  document.querySelectorAll('.prov-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-tab') === savedTab);
+  });
+
+  // Arama kutusunu sync et (event listener tetiklemez)
+  const searchInput = $('prov-search');
+  if (searchInput) searchInput.value = savedSearch;
+
+  // Filtrele ve render et
+  const { main, longtrail } = filterProviders(currentProviders, savedTab, savedSearch);
+
+  // Ana ızgarayı render et
+  const mainHtml = main.length
+    ? main.map(c => renderProviderCard(c)).join('')
+    : '<div class="muted" style="grid-column:1/-1;text-align:center;padding:20px;">Yapılandırılmış sağlayıcı yok.</div>';
+  $('provider-cards').innerHTML = mainHtml;
+
+  // Uzun kuyruk
+  const ltDetails = $('prov-longtrail');
+  const ltCards = $('prov-longtrail-cards');
+  if (longtrail.length) {
+    ltDetails.style.display = 'block';
+    const n = longtrail.length;
+    ltDetails.querySelector('summary').textContent = `${n} sağlayıcı veri döndürmedi`;
+    ltCards.innerHTML = longtrail.map(c => renderProviderCard(c)).join('');
+  } else {
+    ltDetails.style.display = 'none';
+  }
+
+  // Arama sonucu yoksa mesaj
+  const noMatch = $('prov-no-match');
+  if (main.length === 0 && longtrail.length === 0 && currentProviders.length > 0 && savedSearch.trim()) {
+    noMatch.style.display = 'block';
+  } else {
+    noMatch.style.display = 'none';
+  }
+}
+
+// Sekme düğmeleri
+document.querySelectorAll('.prov-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.getAttribute('data-tab');
+    localStorage.setItem('ut.panel.tab.v1', tab);
+    updateProviderDisplay();
+  });
+});
+
+// Arama kutusu (anlık)
+const searchInput = $('prov-search');
+if (searchInput) {
+  searchInput.addEventListener('input', (e) => {
+    const query = e.target.value;
+    localStorage.setItem('ut.panel.search.v1', query);
+    updateProviderDisplay();
+  });
 }
 
 // ── EVENT LISTENERS & STARTUP ────────────────────────────────

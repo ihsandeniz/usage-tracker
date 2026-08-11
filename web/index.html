@@ -80,13 +80,40 @@
     </details>
   </section>
 
-  <!-- ── ÇOK-SAĞLAYICI (FAZ 2) ───────────────────────────── -->
+  <!-- ── ÇOK-SAĞLAYICI (FAZ 2) + GRUPLAMA/ARAMA (FAZ 3 §3) ───────────────────────────── -->
   <section class="card providers">
     <div class="card-head">
       <h2><span>🌐</span> <span data-i18n="otherProviders">Diğer Sağlayıcılar</span></h2>
       <span id="prov-flag" class="pill">—</span>
     </div>
+
+    <!-- Arama kutusu (FAZ 3 §3) -->
+    <div class="prov-search-wrap">
+      <input type="text" id="prov-search" class="prov-search" placeholder="Sağlayıcı adı ara..." data-i18n-ph="provSearchPlaceholder">
+    </div>
+
+    <!-- Kategori sekmeleri (FAZ 3 §3) -->
+    <div class="prov-tabs">
+      <button class="prov-tab active" data-tab="all" data-i18n="provTabAll">Hepsi</button>
+      <button class="prov-tab" data-tab="active" data-i18n="provTabActive">Aktif</button>
+      <button class="prov-tab" data-tab="api" data-i18n="provTabApi">API anahtarı</button>
+      <button class="prov-tab" data-tab="local" data-i18n="provTabLocal">Diskten</button>
+    </div>
+
+    <!-- Ana kart ızgarası -->
     <div id="provider-cards" class="prov-grid"></div>
+
+    <!-- Uzun kuyruk: veri döndürmeyen sağlayıcılar (FAZ 3 §3) -->
+    <details class="prov-longtrail" id="prov-longtrail">
+      <summary class="prov-longtrail-head"></summary>
+      <div id="prov-longtrail-cards" class="prov-grid"></div>
+    </details>
+
+    <!-- Arama sonucu yok mesajı -->
+    <div id="prov-no-match" class="muted" style="display:none; text-align:center; padding:20px;">
+      <p data-i18n="provNoMatch">Eşleşme yok</p>
+    </div>
+
     <p class="note" data-i18n="provNote">Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.</p>
   </section>
 

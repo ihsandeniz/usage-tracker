@@ -207,6 +207,93 @@ class PartialStatus(unittest.TestCase):
             "app.js partial durumu check etmeli")
 
 
+class Phase3Section3Grouping(unittest.TestCase):
+    """FAZ 3 §3: Sağlayıcı kalabalığı — gruplama, arama, uzun kuyruk."""
+
+    def test_web_has_provider_search_input(self):
+        """HTML'de arama input'u olmalı (id=prov-search)."""
+        html = (Path(__file__).parent.parent / 'web' / 'index.html').read_text(encoding='utf-8')
+        self.assertIn('id="prov-search"', html, "prov-search input'u olmalı")
+        self.assertIn('data-i18n-ph="provSearchPlaceholder"', html, "arama placeholder i18n'li olmalı")
+
+    def test_web_has_category_tabs(self):
+        """HTML'de kategori sekmeleri olmalı (all, active, api, local)."""
+        html = (Path(__file__).parent.parent / 'web' / 'index.html').read_text(encoding='utf-8')
+        tabs = ['all', 'active', 'api', 'local']
+        for tab in tabs:
+            self.assertIn(f'data-tab="{tab}"', html, f"tab={tab} olmalı")
+        self.assertIn('class="prov-tab active"', html, "başlangıçta aktif sekme olmalı")
+
+    def test_web_has_longtrail_group(self):
+        """HTML'de uzun kuyruk grubu olmalı (details + prov-longtrail-cards)."""
+        html = (Path(__file__).parent.parent / 'web' / 'index.html').read_text(encoding='utf-8')
+        self.assertIn('id="prov-longtrail"', html, "prov-longtrail details'ı olmalı")
+        self.assertIn('id="prov-longtrail-cards"', html, "longtrail cards ızgarası olmalı")
+
+    def test_web_has_no_match_message(self):
+        """HTML'de arama sonucu yoksa mesajı olmalı."""
+        html = (Path(__file__).parent.parent / 'web' / 'index.html').read_text(encoding='utf-8')
+        self.assertIn('id="prov-no-match"', html, "prov-no-match mesaj div'i olmalı")
+
+    def test_app_js_has_localstorage_versioning(self):
+        """app.js localStorage key'lerinde .v1 eki olmalı (schema değişimi için)."""
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
+        # ut.panel.tab.v1, ut.panel.search.v1 olmalı
+        self.assertIn("'ut.panel.tab.v1'", app_js, "localStorage tab key sürümlü olmalı")
+        self.assertIn("'ut.panel.search.v1'", app_js, "localStorage search key sürümlü olmalı")
+        # Eski version (v0, sürümsüz) YOK olmalı
+        self.assertNotIn("'ut.panel.tab'", app_js.replace("'ut.panel.tab.v1'", ""), "eski key'ler kaldırılmalı")
+
+    def test_app_js_has_filter_function(self):
+        """app.js filterProviders() fonksiyonu olmalı."""
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn('function filterProviders(', app_js, "filterProviders fonksiyonu olmalı")
+        self.assertIn('function matchesSearchQuery(', app_js, "matchesSearchQuery fonksiyonu olmalı")
+
+    def test_app_js_has_the_three_category_branches(self):
+        """Üç sekmenin de bir dalı var mı — yalnız VARLIK kontrolü.
+
+        Bu test eskiden api dalının kaynak metnini birebir sabitliyordu:
+            assertIn("['spend', 'tokens', 'quota'].includes(c.kind)", app_js)
+        O sınıflandırma yanlıştı — `tokens` kartları (Codex/Aider/Continue/Cody/Windsurf)
+        diskten log okur, anahtar istemez; "API" sekmesinde görünmeleri, kartı bulamayan
+        kullanıcıyı var olmayan bir anahtarı aramaya gönderir. Test bunu yakalamadı,
+        çünkü davranışı değil **kaynak metni** ölçüyordu; dahası düzeltmeyi engelledi:
+        doğru sınıflandırma yazıldığında kırmızıya döndü.
+
+        Ders: kaynak metni sabitleyen test, refactor'ı cezalandırır ve hatayı görmez.
+        Sınıflandırmanın kendisi artık `tests/test_panel_behavior.py`'de gerçek
+        `filterProviders` çalıştırılarak ölçülüyor.
+        """
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
+        for tab in ('active', 'api', 'local'):
+            self.assertIn(f"selectedTab === '{tab}'", app_js, f'{tab} sekmesinin dalı yok')
+        self.assertIn("c.status === 'ok' || c.status === 'partial'", app_js,
+                      'aktif sekmesi partial kartları da göstermeli')
+
+    def test_app_js_longtrail_logic(self):
+        """Uzun kuyruk mantığı: nodata/offline kartları ayrılıyor."""
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn("c.status === 'nodata' || c.status === 'offline'", app_js, "longtrail statüs kontrolü olmalı")
+        self.assertIn('const main = filtered.filter', app_js, "main kartlar filtrelemesi olmalı")
+        self.assertIn('const longtrail = filtered.filter', app_js, "longtrail kartlar filtrelemesi olmalı")
+
+    def test_app_js_search_input_listener(self):
+        """app.js'de arama input'u event listener'ı olmalı."""
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn("$('prov-search')", app_js, "prov-search seçim olmalı")
+        self.assertIn("addEventListener('input'", app_js, "arama input event listener olmalı")
+        self.assertIn("localStorage.setItem('ut.panel.search.v1'", app_js, "arama terimi localStorage'a kaydedilmeli")
+
+    def test_app_js_tab_buttons_listeners(self):
+        """app.js'de sekme düğmeleri event listener'ları olmalı."""
+        app_js = (Path(__file__).parent.parent / 'web' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn("querySelectorAll('.prov-tab')", app_js, "sekme seçimi olmalı")
+        self.assertIn("addEventListener('click'", app_js, "sekme click listener olmalı")
+        self.assertIn("getAttribute('data-tab')", app_js, "tab attribute okuma olmalı")
+        self.assertIn("localStorage.setItem('ut.panel.tab.v1'", app_js, "tab localStorage'a kaydedilmeli")
+
+
 class Y3CurrencyIntegration(unittest.TestCase):
     """Y3 para birimi — real HTTP + tray/waybar testleri."""
 
