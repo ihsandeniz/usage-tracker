@@ -105,6 +105,45 @@ def fmt_pct(pct) -> str:
     return '—' if pct is None else f'{round_half_up(pct)}%'
 
 
+def finite_pct(value):
+    """A percentage you can compare against, or None.
+
+    NaN is the dangerous one: IEEE-754 makes every comparison with it false, so a NaN
+    threshold turns `pct >= crit` into "no" at 99% usage and guard exits 0 — the one answer
+    that costs the user money. Anything non-finite or outside `0 < x <= 100` (the range
+    settings.py already enforces) is not a percentage, it is a bug wearing one.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or not 0 < number <= 100:
+        return None
+    return number
+
+
+def finite_number(value):
+    """Same idea without the range: a measured percentage may legitimately exceed 100."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def balance_amount(value):
+    """`balance` is an object — `{total, used, remaining}` — in every producer that emits it
+    (openrouter, deepseek, the demo), and both the panel and waybar read `.remaining`. This
+    surface passed the whole dict to `fmt_money()` and died with a TypeError for every user
+    with an OpenRouter key. A bare number is still accepted: older adapters published one.
+    """
+    if isinstance(value, dict):
+        for key in ('remaining', 'total', 'amount'):
+            number = finite_number(value.get(key))
+            if number is not None:
+                return number
+        return None
+    return finite_number(value)
+
+
 def fmt_money(value, currency='USD') -> str:
     if value is None:
         return '—'
@@ -178,15 +217,31 @@ def _local_wire(all_providers=False) -> dict:
     return wire if all_providers else viewconfig.filter_wire(wire)
 
 
+def _usable_thresholds(raw):
+    """A pair we can actually compare against, or None so the caller keeps looking.
+
+    The server owns these numbers, but "owns" is not "is always right": settings.json is a
+    file a human can edit, and a NaN that arrives from there would silently disable every
+    comparison downstream. Trusting the wire is the rule; trusting it blindly is how the
+    same false comparison becomes a green light.
+    """
+    if not isinstance(raw, dict):
+        return None
+    warn = finite_pct(raw.get('warn'))
+    if warn is None:
+        return None
+    return {'warn': warn, 'crit': finite_pct(raw.get('crit'))}
+
+
 def thresholds_of(wire) -> dict:
     """docs/WIRE.md: the server owns warn/crit; the constant below is the last resort."""
     if isinstance(wire, dict):
-        top = wire.get('thresholds')
-        if isinstance(top, dict) and top.get('warn') is not None:
+        top = _usable_thresholds(wire.get('thresholds'))
+        if top:
             return top
         for card in wire.get('providers') or []:
-            nested = ((card or {}).get('limits') or {}).get('thresholds')
-            if isinstance(nested, dict) and nested.get('warn') is not None:
+            nested = _usable_thresholds(((card or {}).get('limits') or {}).get('thresholds'))
+            if nested:
                 return nested
     return dict(FALLBACK_THRESHOLDS)
 
@@ -216,12 +271,16 @@ def scopes_of(wire, provider='claude') -> list:
 
         if cid == 'claude':
             limits = card.get('limits') or {}
+            # How old the live number is, if this card's bars came from the live overlay.
+            age = (card.get('live') or {}).get('ageSec')
             for key in ('session', 'weekly', 'weeklyModel'):
                 bar = limits.get(key)
                 if isinstance(bar, dict):
+                    stale = bool(bar.get('stale'))
                     out.append({'provider': cid, 'providerName': name, 'scope': f'{cid}/{key}',
                                 'pct': bar.get('pct'), 'resetInSec': bar.get('resetInSec'),
-                                'calibSuspect': bar.get('calibSuspect')})
+                                'calibSuspect': bar.get('calibSuspect'),
+                                'stale': stale, 'ageSec': age if stale else None})
             continue
 
         for key in ('limit', 'quota'):
@@ -229,7 +288,7 @@ def scopes_of(wire, provider='claude') -> list:
             if isinstance(bar, dict) and bar.get('pct') is not None:
                 out.append({'provider': cid, 'providerName': name, 'scope': f'{cid}/{key}',
                             'pct': bar.get('pct'), 'resetInSec': bar.get('resetInSec'),
-                            'calibSuspect': False})
+                            'calibSuspect': False, 'stale': False, 'ageSec': None})
     return out
 
 
@@ -246,20 +305,36 @@ def level_for(pct, warn, crit) -> str:
 def evaluate(wire, provider='claude', threshold=None, warn=None, crit=None) -> dict:
     """Pick the worst scope and say what it means. The heart of guard and watch."""
     th = thresholds_of(wire)
+    # The CLI rejects a non-comparable threshold at the parser (exit 64) — this is the same
+    # guarantee for callers that import `evaluate` directly: an unusable override is dropped
+    # in favour of the server's pair, never silently used to answer "ok".
+    threshold, warn, crit = (finite_pct(threshold), finite_pct(warn), finite_pct(crit))
     if threshold is not None:
         # "tell me when I pass 80" — one boundary, no second tier. Turning 80 into `crit`
         # instead would answer a question the user did not ask (exit 2 vs exit 1).
-        eff_warn, eff_crit = float(threshold), None
+        eff_warn, eff_crit = threshold, None
     else:
-        eff_warn = float(warn) if warn is not None else th.get('warn')
-        eff_crit = float(crit) if crit is not None else th.get('crit')
+        eff_warn = warn if warn is not None else th.get('warn')
+        eff_crit = crit if crit is not None else th.get('crit')
 
     scopes = scopes_of(wire, provider)
-    known = [s for s in scopes if s.get('pct') is not None]
+    known = [s for s in scopes if finite_number(s.get('pct')) is not None]
     worst = max(known, key=lambda s: s['pct']) if known else None
 
     pct = worst['pct'] if worst else None
+    stale = bool(worst.get('stale')) if worst else False
+    age_sec = worst.get('ageSec') if worst else None
     level = level_for(pct, eff_warn, eff_crit)
+
+    # A number that stopped updating is not evidence of a low quota — it is the absence of
+    # evidence. `live.py` shows it anyway (a real value with an age beats a blank badge) and
+    # that is right for a display; here it decides whether an expensive job runs. So an `ok`
+    # built on a stale percentage degrades to `unknown`/3, which this file already defines as
+    # "do not read this as plenty left". A stale `warn`/`crit` keeps its level: both block the
+    # job, and only the specific one tells the user which wall they are near.
+    if stale and level == 'ok':
+        level = 'unknown'
+
     crossed = eff_crit if level == 'crit' else eff_warn if level == 'warn' else None
 
     if worst is None:
@@ -269,6 +344,9 @@ def evaluate(wire, provider='claude', threshold=None, warn=None, crit=None) -> d
         message = f'{worst["scope"]} at {fmt_pct(pct)}'
         if crossed is not None:
             message += f' (over {round_half_up(crossed)})'
+        if stale:
+            age = fmt_duration(age_sec)
+            message += f' — stale{f" ({age} old)" if age else ""}: the last live reading failed'
 
     return {
         'level': level,
@@ -279,6 +357,8 @@ def evaluate(wire, provider='claude', threshold=None, warn=None, crit=None) -> d
         'resetInSec': worst.get('resetInSec') if worst else None,
         'thresholds': ({'warn': eff_warn, 'crit': eff_crit} if threshold is not None else th),
         'crossed': crossed,
+        'stale': stale,
+        'ageSec': age_sec,
         'message': message,
         'scopes': scopes,
     }
@@ -358,8 +438,9 @@ def _render_adapter(card) -> list:
             parts.append(f'today {fmt_money(spend.get("today"), currency)}')
         if spend.get('month') is not None:
             parts.append(f'month {fmt_money(spend.get("month"), currency)}')
-        if card.get('balance') is not None:
-            parts.append(f'balance {fmt_money(card.get("balance"), currency)}')
+        credit = balance_amount(card.get('balance'))
+        if credit is not None:
+            parts.append(f'balance {fmt_money(credit, currency)}')
         if parts:
             out.append('     ' + ' · '.join(parts))
 
@@ -464,6 +545,7 @@ def cmd_guard(args) -> int:
         verdict = {'level': 'unknown', 'exitCode': LEVEL_EXIT['unknown'], 'pct': None,
                    'scope': None, 'provider': args.provider or 'claude', 'resetInSec': None,
                    'thresholds': dict(FALLBACK_THRESHOLDS), 'crossed': None,
+                   'stale': False, 'ageSec': None,
                    'message': f'no data (source: {source})', 'scopes': []}
     else:
         verdict = evaluate(wire, provider=args.provider or 'claude', threshold=args.threshold,
@@ -749,6 +831,15 @@ def cmd_config(args) -> int:
     config = viewconfig.get_config()
     hidden = list(config.get('hidden_providers') or [])
 
+    # Refuse before touching anything: a half-applied `--hide claude --hide ollama` would
+    # leave the user with a changed file and an error message about the part that failed.
+    protected = [p for p in (args.hide or []) if p in viewconfig.PROTECTED_PROVIDERS]
+    if protected:
+        _fail(f'cannot hide {", ".join(protected)}: /v1/usage promises providers[0] is the '
+              f'Claude card (docs/WIRE.md), and the waybar badge, the tray and `guard` all '
+              f'read it. Hiding it would silently switch off the alerts, not just the card.')
+        return EXIT_USAGE
+
     changed = False
     for provider in args.hide or []:
         if provider not in hidden:
@@ -816,6 +907,25 @@ class _Parser(argparse.ArgumentParser):
         self.exit(EXIT_USAGE, f'{self.prog}: error: {message}\n')
 
 
+def pct_arg(text: str) -> float:
+    """argparse type for a threshold. Rejection here is the whole point.
+
+    `type=float` accepted `nan`, `inf` and `1e400` (which overflows to inf) and handed them
+    to a comparison that can only answer "no" — measured 2026-08-12: `guard --threshold nan`
+    exited 0 at 99% usage while `--threshold abc` correctly exited 64. Same flag, same class
+    of nonsense, opposite answers; the dangerous one was the silent one.
+    """
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f'{text!r} is not a number')
+    clean = finite_pct(value)
+    if clean is None:
+        raise argparse.ArgumentTypeError(
+            f'{text!r} is not a usable percentage — expected a finite number in 0 < n <= 100')
+    return clean
+
+
 def _add_source_flags(parser):
     parser.add_argument('--url', help='ask this server only (no local fallback)')
     parser.add_argument('--local', action='store_true',
@@ -849,10 +959,10 @@ def build_parser() -> argparse.ArgumentParser:
         description='Answers with an exit code so a script can decide: '
                     '0 = ok, 1 = warn, 2 = critical, 3 = no usable number.')
     p_guard.add_argument('--provider', default='claude', help='card id, or "all" (default: claude)')
-    p_guard.add_argument('--threshold', type=float,
+    p_guard.add_argument('--threshold', type=pct_arg,
                          help='single boundary: exit 1 above it (disables the crit tier)')
-    p_guard.add_argument('--warn', type=float, help='override the server warn threshold')
-    p_guard.add_argument('--crit', type=float, help='override the server crit threshold')
+    p_guard.add_argument('--warn', type=pct_arg, help='override the server warn threshold')
+    p_guard.add_argument('--crit', type=pct_arg, help='override the server crit threshold')
     p_guard.add_argument('--json', action='store_true')
     p_guard.add_argument('--quiet', '-q', action='store_true', help='exit code only')
     _add_source_flags(p_guard)
@@ -864,9 +974,9 @@ def build_parser() -> argparse.ArgumentParser:
                     'not on every poll.')
     p_watch.add_argument('--interval', type=int, default=300, help='seconds between polls (default 300)')
     p_watch.add_argument('--provider', default='claude', help='card id, or "all"')
-    p_watch.add_argument('--threshold', type=float, help='single boundary instead of warn/crit')
-    p_watch.add_argument('--warn', type=float)
-    p_watch.add_argument('--crit', type=float)
+    p_watch.add_argument('--threshold', type=pct_arg, help='single boundary instead of warn/crit')
+    p_watch.add_argument('--warn', type=pct_arg)
+    p_watch.add_argument('--crit', type=pct_arg)
     p_watch.add_argument('--exec', help='shell command to run on a crossing (data in UT_* env vars)')
     p_watch.add_argument('--notify', action='store_true', help='send a desktop notification')
     p_watch.add_argument('--once', action='store_true', help='check once and exit (for cron/timers)')
@@ -886,9 +996,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_cfg.add_argument('--hide', action='append', metavar='ID')
     p_cfg.add_argument('--show', action='append', metavar='ID')
     p_cfg.add_argument('--reset', action='store_true', help='make every card visible again')
-    p_cfg.add_argument('--warn', type=float, metavar='PCT',
+    p_cfg.add_argument('--warn', type=pct_arg, metavar='PCT',
                        help='warn threshold; every surface reads this pair')
-    p_cfg.add_argument('--crit', type=float, metavar='PCT', help='critical threshold')
+    p_cfg.add_argument('--crit', type=pct_arg, metavar='PCT', help='critical threshold')
     p_cfg.add_argument('--refresh', type=int, metavar='SEC', help="the panel's poll interval")
     p_cfg.add_argument('--json', action='store_true')
     p_cfg.set_defaults(func=cmd_config)

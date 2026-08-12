@@ -77,7 +77,9 @@ OPENROUTER_CARD = {
     'id': 'openrouter', 'name': 'OpenRouter', 'kind': 'spend', 'available': True,
     'status': 'ok', 'error': None, 'currency': 'USD',
     'spend': {'today': 0.16, 'month': 3.76},
-    'balance': 6.23,
+    # The shape usage/providers/openrouter.py:81 actually publishes — an object, not a
+    # number. The old `6.23` here was invented by this file and hid a production crash.
+    'balance': {'total': 20.0, 'used': 13.77, 'remaining': 6.23},
     'limit': {'used': 4.0, 'limit': 5.0, 'pct': 80.0},
 }
 
@@ -450,6 +452,167 @@ class DoctorCommand(unittest.TestCase):
 
 
 # ── config ────────────────────────────────────────────────────────────────────
+class ThresholdsAreValidated(unittest.TestCase):
+    """A number you cannot compare against must never read as "safe to continue".
+
+    Measured 2026-08-12 against the real CLI: `guard --threshold nan` exited **0** while the
+    wire said 99%. IEEE-754 makes every comparison with NaN false, so `pct >= crit` and
+    `pct >= warn` both failed and the level fell through to `ok`. `abc` was already refused
+    with 64 — `nan`, `inf` and `1e400` (which overflows to inf) walked straight through
+    `float()`. The inconsistency was the tell: the same flag rejected one kind of nonsense
+    and rewarded another with the one exit code that means "go ahead".
+
+    The range is the same one settings.py enforces (`0 < x <= 100`): a fourth surface must
+    not invent a fifth rule.
+    """
+
+    BAD = ('nan', 'NaN', 'inf', 'Infinity', '1e400', '0', '101', '-0.0')
+
+    def test_the_parser_refuses_them_before_any_comparison_happens(self):
+        parser = cli.build_parser()
+        for command in ('guard', 'watch', 'config'):
+            flags = ('--threshold', '--warn', '--crit') if command != 'config' else ('--warn', '--crit')
+            for flag in flags:
+                for bad in self.BAD:
+                    with self.subTest(command=command, flag=flag, value=bad):
+                        with self.assertRaises(SystemExit) as caught:
+                            parser.parse_args([command, flag, bad])
+                        self.assertEqual(caught.exception.code, cli.EXIT_USAGE,
+                                         f'{command} {flag} {bad} was accepted')
+
+    def test_valid_thresholds_still_pass(self):
+        parser = cli.build_parser()
+        for good in ('0.5', '75', '90.5', '100'):
+            with self.subTest(value=good):
+                args = parser.parse_args(['guard', '--threshold', good])
+                self.assertEqual(args.threshold, float(good))
+
+    def test_end_to_end_a_nan_threshold_never_exits_zero(self):
+        """The unit above proves the parser; this proves the binary a script actually calls."""
+        with FakeWireServer(make_wire(99.0)) as url:
+            for bad in ('nan', 'inf', '1e400'):
+                with self.subTest(value=bad):
+                    r = run_cli(['guard', '--url', url + '/v1/usage', '--threshold', bad])
+                    self.assertEqual(r.returncode, cli.EXIT_USAGE,
+                                     f'--threshold {bad} exited {r.returncode} at 99% usage')
+
+    def test_a_broken_threshold_in_the_wire_falls_back_instead_of_saying_ok(self):
+        """The server owns warn/crit — but a hand-edited settings.json can still ship NaN.
+        Trusting it would turn the same false comparison into a silent green light."""
+        wire = make_wire(95.0, thresholds={'warn': float('nan'), 'crit': float('inf')})
+        verdict = cli.evaluate(wire)
+        self.assertEqual(verdict['level'], 'crit')
+        self.assertEqual(verdict['thresholds'], cli.FALLBACK_THRESHOLDS)
+
+
+class StaleLiveDataIsNotASafeNumber(unittest.TestCase):
+    """Measured 2026-08-12: a 7-day-old cached percentage was overlaid onto the limit bars,
+    `guard` read 5% off it and exited 0, and nothing in its output said the number was old.
+
+    `live.py` marking the value `stale` and still showing it is right for a *display* — a
+    real number with an age beats a blank badge. The defect is that the same value reached a
+    *decision* unmarked. `guard || skip_expensive_job` then runs the expensive job on a
+    percentage frozen before the network died.
+
+    Unknown is 3, never 0 — the rule this file already pins for a missing number applies to
+    a number that can no longer be trusted.
+    """
+
+    def _wire(self, pct, *, stale=True, age=604800.0):
+        wire = make_wire(pct)
+        card = wire['providers'][0]
+        card['live'] = {**card['live'], 'ok': True, 'cached': True, 'stale': stale, 'ageSec': age}
+        for key in ('session', 'weekly'):
+            bar = card['limits'].get(key)
+            if bar:
+                bar['live'] = True
+                bar['stale'] = stale
+        return wire
+
+    def _guard(self, wire, extra=()):
+        with FakeWireServer(wire) as url:
+            return run_cli(['guard', '--url', url + '/v1/usage', *extra])
+
+    def test_a_stale_ok_percentage_exits_three_not_zero(self):
+        self.assertEqual(self._guard(self._wire(5.0)).returncode, 3)
+
+    def test_a_fresh_percentage_is_unaffected(self):
+        self.assertEqual(self._guard(self._wire(5.0, stale=False, age=12.0)).returncode, 0)
+
+    def test_a_stale_critical_number_still_reports_critical(self):
+        """Degrading crit to unknown would throw away the more useful warning; both block
+        the job, but only one tells the user which wall they hit."""
+        self.assertEqual(self._guard(self._wire(95.0)).returncode, 2)
+
+    def test_the_consumer_is_told_the_number_is_old(self):
+        r = self._guard(self._wire(5.0), extra=['--json'])
+        out = json.loads(r.stdout)
+        self.assertIs(out['stale'], True)
+        self.assertEqual(out['ageSec'], 604800.0)
+        self.assertEqual(out['exitCode'], 3)
+
+    def test_the_text_output_says_so_too(self):
+        r = self._guard(self._wire(5.0))
+        self.assertIn('stale', (r.stdout + r.stderr).lower())
+
+
+class ClaudeCannotBeHidden(unittest.TestCase):
+    """docs/WIRE.md:37 promises `providers[0]` is always the Claude card — and this round
+    made that wire PUBLIC. Measured 2026-08-12: `config --hide claude` was accepted, after
+    which `/v1/usage` led with `ollama`, the waybar badge went blank and `guard` exited 3.
+    A view preference silently disabled the alerting path.
+    """
+
+    def test_hiding_claude_is_refused_with_a_reason(self):
+        tmp = tempfile.mkdtemp(prefix='ut-cli-claude-')
+        env = {'XDG_CONFIG_HOME': str(Path(tmp) / 'config'), 'APPDATA': str(Path(tmp) / 'roaming')}
+        r = run_cli(['config', '--hide', 'claude'], env_extra=env)
+        self.assertEqual(r.returncode, cli.EXIT_USAGE)
+        self.assertIn('claude', (r.stderr + r.stdout).lower())
+        out = json.loads(run_cli(['config', '--json'], env_extra=env).stdout)
+        self.assertEqual(out['hidden'], [], 'the refused write still changed the file')
+
+    def test_other_cards_can_still_be_hidden_in_the_same_call(self):
+        tmp = tempfile.mkdtemp(prefix='ut-cli-claude2-')
+        env = {'XDG_CONFIG_HOME': str(Path(tmp) / 'config'), 'APPDATA': str(Path(tmp) / 'roaming')}
+        r = run_cli(['config', '--hide', 'ollama'], env_extra=env)
+        self.assertEqual(r.returncode, 0)
+        out = json.loads(run_cli(['config', '--json'], env_extra=env).stdout)
+        self.assertEqual(out['hidden'], ['ollama'])
+
+
+class OpenRouterBalanceRenders(unittest.TestCase):
+    """`balance` is an object in every producer (openrouter, deepseek, demo) and both the
+    panel and waybar read `.balance.remaining`. The CLI handed the whole dict to
+    `fmt_money()`, which crashed with TypeError. The fixture in this very file said
+    `balance: 6.23` — a hand-written shape production never emits, so the suite stayed green
+    while `usage` died for every user with an OpenRouter key.
+    """
+
+    def test_the_real_card_shape_renders_the_remaining_credit(self):
+        card = dict(OPENROUTER_CARD)
+        with FakeWireServer(make_wire(50.0, extra_providers=[card])) as url:
+            r = run_cli(['usage', '--provider', 'openrouter', '--url', url + '/v1/usage'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('balance', r.stdout)
+        self.assertIn('$6.23', r.stdout)
+        self.assertNotIn('Traceback', r.stderr)
+
+    def test_a_plain_number_is_still_accepted(self):
+        """v0.2.x consumers and older adapters published a bare number; refusing it now
+        would trade one crash for another."""
+        card = dict(OPENROUTER_CARD, balance=6.23)
+        with FakeWireServer(make_wire(50.0, extra_providers=[card])) as url:
+            r = run_cli(['usage', '--provider', 'openrouter', '--url', url + '/v1/usage'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('$6.23', r.stdout)
+
+    def test_fmt_money_never_raises_on_a_shape_it_did_not_expect(self):
+        for value in ({'remaining': 5.0}, {}, 'nonsense', [1, 2]):
+            with self.subTest(value=value):
+                self.assertIsInstance(cli.fmt_money(cli.balance_amount(value)), str)
+
+
 class ConfigCommand(unittest.TestCase):
     def test_hide_and_show_round_trip(self):
         tmp = tempfile.mkdtemp(prefix='ut-cli-cfg-')
