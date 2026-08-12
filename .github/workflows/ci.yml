@@ -45,6 +45,10 @@ jobs:
         shell: python
         run: |
           import importlib, pathlib, sys
+          # `shell: python` writes the script to a temp file and runs it, so sys.path[0] is
+          # that temp directory — not the checkout. Without this every import below fails
+          # with "No module named 'usage'" and the step measures the runner, not the code.
+          sys.path.insert(0, '.')
           bad = []
           for p in sorted(pathlib.Path('usage/providers').glob('*.py')):
               if p.stem == '__init__':
@@ -64,6 +68,7 @@ jobs:
         # that has no Claude, no Codex, no Ollama and no API keys — i.e. a CI runner.
         shell: python
         run: |
+          import sys; sys.path.insert(0, '.')      # see the note on the adapter-import step
           from usage.providers import collect
           cards = collect(30)
           print(f'{len(cards)} card(s) on a bare machine')
@@ -152,9 +157,14 @@ jobs:
           jq -e '.thresholds.warn and (.level | test("ok|warn|crit|unknown"))' guard.json >/dev/null
 
           set +e
-          python -m usage.cli guard --quiet --threshold 200 --url http://127.0.0.1:8770/v1/usage
+          # A threshold is a percentage: 0 < n <= 100, the range settings.py enforces.
+          # 200 and 0 used to be shorthand for "nothing can cross this" and "everything
+          # does" — but a line nothing can reach is exactly the silent `exit 0` this
+          # command exists to prevent, so it is refused (64) now. 100 and 0.1 say the same
+          # thing from inside the contract.
+          python -m usage.cli guard --quiet --threshold 100 --url http://127.0.0.1:8770/v1/usage
           low=$?
-          python -m usage.cli guard --quiet --threshold 0 --url http://127.0.0.1:8770/v1/usage
+          python -m usage.cli guard --quiet --threshold 0.1 --url http://127.0.0.1:8770/v1/usage
           high=$?
           python -m usage.cli guard --quiet --url http://127.0.0.1:9999/v1/usage
           gone=$?
@@ -178,6 +188,18 @@ jobs:
           echo "typo=$typo no-verb=$noverb"
           [ "$typo" = 64 ] || { echo "::error::a mistyped command returned $typo — 124 means it started a server"; exit 1; }
           [ "$noverb" = 64 ] || { echo "::error::a flag without a subcommand returned $noverb, not 64"; exit 1; }
+
+          # A threshold that cannot answer the question must not answer "go ahead".
+          # `nan` compared false against everything and exited 0 at 99% usage.
+          set +e
+          for bad in nan inf 1e400 0 101; do
+            python -m usage.cli guard --quiet --threshold "$bad" \
+                   --url http://127.0.0.1:8770/v1/usage >/dev/null 2>&1
+            code=$?
+            [ "$code" = 64 ] || { echo "::error::--threshold $bad returned $code, not 64"; set -e; exit 1; }
+          done
+          set -e
+          echo "unusable thresholds refused with 64"
 
       - name: The CLI can feed waybar without bash or jq
         run: |
