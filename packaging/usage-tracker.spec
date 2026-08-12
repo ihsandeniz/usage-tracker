@@ -31,7 +31,10 @@ a = Analysis(                                    # noqa: F821
         (str(ROOT / 'data'), 'data'),
         (str(ROOT / 'price_overrides.json'), '.'),
     ],
-    hiddenimports=[],
+    # `usage.cli` yalnızca `server.main()` içinde, çalışma anında import ediliyor (CLI alt
+    # komutu verilmedikçe yüklenmesin diye). Analiz bunu bulur ama bulamazsa hata sessizdir:
+    # paket açılır, sunucu çalışır ve `usage-tracker guard` "böyle bir komut yok" der.
+    hiddenimports=['usage.cli'],
     hookspath=[],
     runtime_hooks=[],
     # Sıfır bağımlılık sözü ikili boyutunda da tutulsun: GUI araç setlerini ve test

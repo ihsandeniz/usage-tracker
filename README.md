@@ -222,6 +222,31 @@ The core **web panel** (`http://127.0.0.1:8770`) runs on every Linux and every d
 
 Autostart (Hyprland): `exec-once = /ABS/PATH/surface/usage-widget open`.
 
+### Option C — the command line
+
+The other two surfaces are things you look at. This one another program can ask:
+
+```bash
+python3 server.py guard --threshold 80 || echo "not now — the quota is nearly gone"
+```
+
+```
+python3 server.py usage        # limits, spend and every provider card
+python3 server.py providers    # which cards exist, and why one is missing
+python3 server.py guard        # exit 0 ok · 1 warn · 2 critical · 3 unknown
+python3 server.py watch        # fire once per threshold crossing (--exec / --notify)
+python3 server.py doctor       # diagnose an installation without asking for logs
+python3 server.py config       # which cards are visible
+```
+
+No server needed (it computes locally when nothing answers on `:8770`), and no bash, curl or
+jq — which is how Windows gets a usable surface while the `.sh` feeders stay Linux-only.
+`usage --format waybar` is the bar feeder without the shell. The single-file build is the
+same binary: `usage-tracker guard`.
+
+Full reference, including the exit-code contract and the `UT_*` variables `watch --exec`
+sets: [`docs/CLI.md`](docs/CLI.md).
+
 ## Configuration
 
 ### Where your data lives
@@ -298,6 +323,8 @@ to it; the short version is *write the failing test first, and assert the number
 - [x] waybar badge + movable/resizable floating widget
 - [x] Per-provider data selection (⚙ View tab → `view_config.json`; waybar/widget/panel obey)
 - [x] Optional native system-tray icon (Qt `QSystemTrayIcon`; SNI → waybar tray)
+- [x] CLI — `usage` / `providers` / `guard` / `watch` / `doctor` / `config`, with a documented
+      exit-code contract for scripts ([`docs/CLI.md`](docs/CLI.md))
 - [ ] Verify candidate endpoints (Together / Novita / DeepInfra / HuggingFace / DeepSeek) against live keys
 
 ## Contributing

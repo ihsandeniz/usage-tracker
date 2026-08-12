@@ -2,6 +2,14 @@
 # usage-notify — proaktif limit uyarısı; %75/%90 eşiklerinde sistem bildirimi gönder.
 # CodexBar parity: uyarı (warn) + kritik (crit) bildirimleri.
 #
+# ⚠️ DEVREDİLDİ (FAZ 4, 2026-08-12) → `usage-tracker watch --notify`
+#   Çalışmaya devam ediyor, ama yeni davranış buraya değil CLI'ya yazılıyor. İki sebep:
+#     1) Bu script eşiği KENDİ taşıyor (aşağıdaki 75,90) — sunucunun eşiği değişince
+#        sessizce sapar. CLI eşiği `/v1/usage` `thresholds` alanından okur (docs/WIRE.md).
+#     2) bash + curl + jq gerektiriyor; CLI aynı işi her platformda tek süreçle yapıyor.
+#   Karşılığı:  usage-notify.sh once        → usage-tracker watch --once --notify
+#               usage-notify.sh watch 300   → usage-tracker watch --interval 300 --notify
+#
 # Kullanım:
 #   usage-notify.sh once         tek kontrol (cron/systemd timer için)
 #   usage-notify.sh watch [n]    döngü (n saniye aralık, varsayılan 300)

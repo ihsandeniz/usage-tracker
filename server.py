@@ -202,8 +202,17 @@ class Handler(BaseHTTPRequestHandler):
         self._error(404, 'endpoint not found')
 
 
+# CLI alt komutları (usage/cli.py). Tek giriş noktası bilinçli: donmuş paketin içinde
+# ikinci bir çalıştırılabilir yok — `usage-tracker.exe guard` çalışmak zorunda.
+CLI_COMMANDS = ('usage', 'providers', 'guard', 'watch', 'doctor', 'config')
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+
+    if argv and argv[0] in CLI_COMMANDS:
+        from usage import cli
+        return cli.main(argv)
 
     if '--version' in argv or '-V' in argv:
         # Tek kaynak: VERSION. `git tag` ile hizalı olduğunu CI doğrular (.github/workflows/ci.yml)

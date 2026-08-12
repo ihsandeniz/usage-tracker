@@ -37,7 +37,7 @@ jobs:
 
       - name: Import smoke test
         run: >
-          python -c "import server, usage, usage.catalog, usage.demo, usage.engine,
+          python -c "import server, usage, usage.catalog, usage.cli, usage.demo, usage.engine,
           usage.live, usage.pricing, usage.viewconfig; from usage import providers;
           print('imports ok on', __import__('platform').system())"
 
@@ -142,6 +142,38 @@ jobs:
           echo "$out" | jq -e '.text | length > 0' >/dev/null || {
             echo "::error::waybar feeder produced empty text — jq guard regression"; exit 1; }
           echo "$out" | jq -e 'has("class")' >/dev/null
+
+      - name: The guard exit codes hold against a live server
+        # `usage-tracker guard || skip_the_expensive_job` is a promise made to other
+        # people's scripts. Unit tests pin it against a fake server; this pins it against
+        # the real one, on a machine that has no Claude data at all.
+        run: |
+          python -m usage.cli guard --json --url http://127.0.0.1:8770/v1/usage | tee guard.json
+          jq -e '.thresholds.warn and (.level | test("ok|warn|crit|unknown"))' guard.json >/dev/null
+
+          set +e
+          python -m usage.cli guard --quiet --threshold 200 --url http://127.0.0.1:8770/v1/usage
+          low=$?
+          python -m usage.cli guard --quiet --threshold 0 --url http://127.0.0.1:8770/v1/usage
+          high=$?
+          python -m usage.cli guard --quiet --url http://127.0.0.1:9999/v1/usage
+          gone=$?
+          python -m usage.cli --not-a-flag >/dev/null 2>&1
+          misuse=$?
+          set -e
+          echo "under=$low over=$high unreachable=$gone misuse=$misuse"
+          # A runner has no transcripts, so the percentage may legitimately be unknown (3).
+          [ "$low" = 0 ] || [ "$low" = 3 ] || { echo "::error::guard under the line returned $low"; exit 1; }
+          [ "$high" = 1 ] || [ "$high" = 3 ] || { echo "::error::guard over the line returned $high"; exit 1; }
+          [ "$gone" = 3 ] || { echo "::error::unreachable server must exit 3, got $gone"; exit 1; }
+          [ "$misuse" = 64 ] || { echo "::error::misuse must exit 64, not $misuse (2 means crit)"; exit 1; }
+
+      - name: The CLI can feed waybar without bash or jq
+        run: |
+          python -m usage.cli usage --format waybar --url http://127.0.0.1:8770/v1/usage > wb.json
+          jq -e '.text | length > 0' wb.json >/dev/null
+          jq -e 'has("class") and has("tooltip")' wb.json >/dev/null
+          echo "cli feeder ok"
 
       - name: Demo mode renders too
         run: |

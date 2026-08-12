@@ -173,6 +173,34 @@ waybar gerekmez.
 
 Otomatik başlatma (Hyprland): `exec-once = /MUTLAK/YOL/surface/usage-widget open`.
 
+### Seçenek C — komut satırı
+
+Diğer iki yüzey *baktığın* şeyler. Bu, başka bir programın **sorabildiği** yüzey:
+
+```bash
+python3 server.py guard --threshold 80 || echo "şimdi olmaz — kota bitmek üzere"
+```
+
+```
+python3 server.py usage        # limitler, harcama ve tüm sağlayıcı kartları
+python3 server.py providers    # hangi kartlar var, biri neden yok
+python3 server.py guard        # çıkış kodu: 0 iyi · 1 uyarı · 2 kritik · 3 bilinmiyor
+python3 server.py watch        # eşik geçişinde bir kez tetikler (--exec / --notify)
+python3 server.py doctor       # log istemeden kurulum teşhisi
+python3 server.py config       # hangi kartlar görünür
+```
+
+Sunucu gerekmez (`:8770` cevap vermiyorsa sayıları kendi hesaplar), bash/curl/jq de
+gerekmez — Windows'un kullanılabilir bir yüzeye kavuşma yolu bu; `.sh` besleyiciler
+Linux'a özel kalıyor. `usage --format waybar` = kabuksuz waybar besleyicisi. Tek dosyalık
+paket aynı ikilidir: `usage-tracker guard`.
+
+**Bilinmeyen sıfır değildir:** güvenilecek bir yüzde yoksa `guard` 0 değil **3** döner —
+0 dönseydi tam da engellemek istediğin pahalı işi sessizce başlatırdı.
+
+Tam referans (çıkış kodu sözleşmesi + `watch --exec`'in verdiği `UT_*` değişkenleri):
+[`docs/CLI.md`](docs/CLI.md) — belge İngilizce, CLI çıktısı da öyle.
+
 ## Sağlayıcı ekleme
 
 Adaptörler `usage/providers/` altında. Her modül `collect(days) -> dict | None` sunar; `None` = "kart yok" (yapılandırılmamış sağlayıcı sessizce gizlenir — **ölü kart yok**). Eklemek için `usage/providers/<ad>.py` bırak ve `_ADAPTERS`'a kaydet. OpenRouter ortamdan `$OPENROUTER_API_KEY` okur.
