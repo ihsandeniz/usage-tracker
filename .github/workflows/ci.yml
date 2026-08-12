@@ -160,6 +160,14 @@ jobs:
           gone=$?
           python -m usage.cli --not-a-flag >/dev/null 2>&1
           misuse=$?
+          # The dispatcher in front of the parser is the ONLY entry the packaged binary has,
+          # and it used to fall through to serve() on anything unknown: `usage-tracker gaurd`
+          # started an HTTP server and exited 0, so `… || skip` hung instead of skipping.
+          # Testing `python -m usage.cli` alone cannot see that — it skips the dispatcher.
+          USAGE_PORT=8899 timeout 10 python server.py gaurd >/dev/null 2>&1
+          typo=$?
+          USAGE_PORT=8899 timeout 10 python server.py --threshold 80 >/dev/null 2>&1
+          noverb=$?
           set -e
           echo "under=$low over=$high unreachable=$gone misuse=$misuse"
           # A runner has no transcripts, so the percentage may legitimately be unknown (3).
@@ -167,6 +175,9 @@ jobs:
           [ "$high" = 1 ] || [ "$high" = 3 ] || { echo "::error::guard over the line returned $high"; exit 1; }
           [ "$gone" = 3 ] || { echo "::error::unreachable server must exit 3, got $gone"; exit 1; }
           [ "$misuse" = 64 ] || { echo "::error::misuse must exit 64, not $misuse (2 means crit)"; exit 1; }
+          echo "typo=$typo no-verb=$noverb"
+          [ "$typo" = 64 ] || { echo "::error::a mistyped command returned $typo — 124 means it started a server"; exit 1; }
+          [ "$noverb" = 64 ] || { echo "::error::a flag without a subcommand returned $noverb, not 64"; exit 1; }
 
       - name: The CLI can feed waybar without bash or jq
         run: |

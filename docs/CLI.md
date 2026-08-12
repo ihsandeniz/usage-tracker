@@ -104,6 +104,13 @@ wire format:**
 64 rather than argparse's default of 2 — because 2 already means *critical* to a script
 that only knows this table.
 
+`64` covers the dispatcher too, not just the flags of a known command. `usage-tracker gaurd`
+and `usage-tracker --threshold 80` (subcommand forgotten) both exit 64. They used to start
+the panel server and exit 0, which made `usage-tracker gaurd || skip_job` hang instead of
+skip — the failure the 64 decision exists to prevent, one layer above where it was applied.
+Found by running the packaged binary; the unit tests were exercising `python -m usage.cli`,
+which never passes through the dispatcher.
+
 ```bash
 usage-tracker guard                        # server's warn/crit
 usage-tracker guard --threshold 80         # one boundary: exit 1 above 80

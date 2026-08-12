@@ -262,6 +262,21 @@ def main(argv=None):
         print(f'usage-tracker {VERSION}')
         return 0
 
+    # Tanımadığını **sunucu başlatarak** karşılamak, `guard`'ın çıkış-kodu sözleşmesini
+    # kapının önünde deliyordu: `usage-tracker gaurd` (yazım hatası) ya da
+    # `usage-tracker --threshold 80` (alt komutu unutmak) sessizce HTTP servisi açıp
+    # 0 ile çıkıyordu — `… || atla` yazan script atlamıyor, asılıyordu. Alt komut
+    # ayrıştırıcısı 64 döndürüyordu ama donmuş pakette **yalnız bu dağıtıcı** erişilebilir.
+    # Kural: argüman varsa ya bilinen bir komuttur ya bilinen bir bayrak; üçüncü şık yok.
+    if argv and argv[0] not in ('--version', '-V', '--help', '-h'):
+        from usage.cli import EXIT_USAGE
+        hint = (f"unknown command '{argv[0]}'" if not argv[0].startswith('-')
+                else f"unknown option '{argv[0]}'")
+        print(f'usage-tracker: {hint}\n'
+              f"commands: {' · '.join(CLI_COMMANDS)}\n"
+              f'run without arguments to serve the panel; --help for details', file=sys.stderr)
+        return EXIT_USAGE
+
     if '--help' in argv or '-h' in argv:
         print(f'usage-tracker {VERSION} — AI kullanım/limit/harcama izleyici\n'
               f'\n'

@@ -490,6 +490,27 @@ class EntryPoints(unittest.TestCase):
         for cmd in ('usage', 'providers', 'guard', 'watch', 'doctor', 'config'):
             self.assertIn(cmd, r.stdout)
 
+    def test_a_typo_in_the_command_does_not_start_a_server(self):
+        """Found in the frozen binary, not in these tests: the dispatcher fell through to
+        serve() for anything it did not recognise. `usage-tracker gaurd` (a typo) then
+        started an HTTP server and exited 0 — so `usage-tracker gaurd || skip_job` never
+        skipped, it hung. The subcommand parser exits 64 correctly; the dispatcher in front
+        of it did not, and only the dispatcher is reachable from the packaged binary.
+        """
+        for argv in (['gaurd'], ['--threshold', '80'], ['-x'], ['guard', 'extra-positional']):
+            with self.subTest(argv=argv):
+                # A port nobody uses: if the dispatcher still falls through to serve(), the
+                # process must hang here rather than collide with a real server and exit 1 —
+                # a hang is the honest reproduction of the bug.
+                try:
+                    r = run_cli(argv, entry='server', timeout=8,
+                                env_extra={'USAGE_PORT': '8899'})
+                except subprocess.TimeoutExpired:
+                    self.fail(f'{argv} started a server instead of refusing')
+                self.assertEqual(r.returncode, cli.EXIT_USAGE,
+                                 f'{argv} returned {r.returncode}; 64 is the only answer that '
+                                 f'cannot be mistaken for a level')
+
 
 # ── local fallback (no server needed) ─────────────────────────────────────────
 class LocalFallback(unittest.TestCase):
