@@ -395,6 +395,13 @@ class StalenessReachesEverySurface(unittest.TestCase):
 
     # ── waybar: the real jq program, served over real HTTP ────────────────────
     def _run_waybar(self, wire):
+        # waybar is a Linux/Wayland module and this feeder is its Linux path — the Windows
+        # path is `usage --format waybar`, which has no shell in it and is tested above.
+        # Running the bash feeder under Git Bash measures Git Bash: it exits 1 with an empty
+        # stderr on the runner, which was news (nothing had ever executed this script on
+        # Windows before), but it is not a defect in a surface that cannot exist there.
+        if sys.platform.startswith('win'):
+            self.skipTest('waybar feeder is the Linux surface; the Windows path is the CLI feeder')
         if not shutil.which('jq'):
             self.skipTest('jq not installed')
         payload = json.dumps(wire).encode('utf-8')
