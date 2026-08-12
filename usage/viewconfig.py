@@ -25,6 +25,30 @@ from . import platform as _paths
 CONFIG_PATH = _paths.config_dir() / 'view_config.json'
 LEGACY_CONFIG_PATH = Path(__file__).resolve().parent.parent / 'view_config.json'
 
+# Gizlenemeyen kart. `docs/WIRE.md:37` "providers[0] is always the Claude card" diye söz
+# veriyor ve bu tur o wire'ı PUBLIC ilan etti; waybar rozeti, tepsi ikonu ve `guard` hepsi
+# o konuma bakıyor. 2026-08-12 ölçümü: `config --hide claude` kabul edilince `/v1/usage`
+# başında `ollama` kaldı, rozet boşaldı, `guard` 3 döndü — kullanıcı bir *görünüm* tercihi
+# yaparken uyarı hattını kapatmış oldu, üstelik hiçbir uyarı almadan.
+PROTECTED_PROVIDERS = ('claude',)
+
+
+def validate_config(cfg) -> tuple:
+    """(ok, hata) — reddedilen yazma hiçbir dosyaya dokunmaz (FAZ 6/B kuralı)."""
+    if not isinstance(cfg, dict):
+        return False, 'config must be an object'
+    hidden = cfg.get('hidden_providers')
+    if not isinstance(hidden, list):
+        return False, 'hidden_providers must be a list'
+    if not all(isinstance(x, str) for x in hidden):
+        return False, 'hidden_providers must contain only strings'
+    blocked = [p for p in hidden if p in PROTECTED_PROVIDERS]
+    if blocked:
+        return False, (f'{", ".join(blocked)} cannot be hidden: /v1/usage guarantees '
+                       f'providers[0] is the Claude card, and the waybar badge, the tray '
+                       f'and `guard` all read it')
+    return True, None
+
 
 def get_config() -> dict:
     """
@@ -44,6 +68,10 @@ def get_config() -> dict:
         # Güvenli: hidden_providers listesi değilse boşla
         if not isinstance(cfg.get("hidden_providers"), list):
             cfg["hidden_providers"] = []
+        # Yazma yolu artık reddediyor ama diskte eski bir sürümün yazdığı dosya olabilir.
+        # Okurken de süzmek, o dosyanın wire sözleşmesini kıramayacağı anlamına gelir.
+        cfg["hidden_providers"] = [p for p in cfg["hidden_providers"]
+                                   if p not in PROTECTED_PROVIDERS]
         return cfg
     except Exception:
         return {"hidden_providers": []}
@@ -57,11 +85,10 @@ def save_config(cfg: dict) -> bool:
         cfg: {"hidden_providers": [...]}} — list-of-string doğrulama expected
 
     Returns:
-        bool: Başarılı True, hata False
+        bool: Başarılı True, hata False (gerekçe için `validate_config`)
     """
-    if not isinstance(cfg, dict):
-        return False
-    if not isinstance(cfg.get("hidden_providers"), list):
+    ok, _err = validate_config(cfg)
+    if not ok:
         return False
 
     try:
@@ -101,7 +128,7 @@ def filter_wire(wire: dict) -> dict:
         return wire
 
     cfg = get_config()
-    hidden = set(cfg.get("hidden_providers", []))
+    hidden = set(cfg.get("hidden_providers", [])) - set(PROTECTED_PROVIDERS)
 
     # Shallow copy — providers listesini sadece süz
     out = dict(wire)

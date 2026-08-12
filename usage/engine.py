@@ -15,7 +15,7 @@ import os
 import threading
 import time
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import pricing
@@ -362,24 +362,41 @@ def _overlay_live(out: dict, now_ms: int):
                    'rateLimitTier': lv.get('rateLimitTier')}
     if not lv.get('ok'):
         return
+    stale = bool(lv.get('stale'))
     windows = lv.get('windows') or {}
-    def apply(bar, win_key):
+
+    def apply(bar, win_key, window_ms=None):
         w = windows.get(win_key)
         if not bar or not w or w.get('utilization') is None:
             return
         bar['pct'] = w['utilization']
         bar['live'] = True
+        # Bindirilen sayının yaşı barın kendisinde durur. Ağ kesildiğinde `live.py` son iyi
+        # kaydı 'stale' işaretiyle göstermeye devam eder — bir GÖSTERİM için doğru karar,
+        # ama aynı sayı `guard`'ın kararına da giriyordu ve orada işaretsizdi: 7 gün önce
+        # donmuş %5, "güvenle devam" diye okunuyordu (2026-08-12 ölçümü). İşaret artık
+        # wire'a kadar geliyor, karar veren yüzey görmezden gelemiyor.
+        bar['stale'] = stale
         rms, rsec = _reset_in(w.get('resets_at'), now_ms)
         if rms:
             bar['resetAtMs'], bar['resetInSec'] = rms, rsec
         if w.get('remaining') is not None:
             bar['remaining'] = w['remaining']
-    apply(out['session'],   'five_hour')
-    apply(out['weeklyAll'], 'seven_day')
+        # Tahmin kalibrasyon yüzdesinden hesaplanmıştı; yüzde değiştiyse tahmin de değişir.
+        # Eskisini bırakmak, ekranda görünen sayıyla uyuşmayan bir "ne zaman dolar" demekti.
+        reset_ms = bar.get('resetAtMs')
+        if window_ms and reset_ms:
+            bar['forecast'] = _compute_forecast(bar['pct'], now_ms - (reset_ms - window_ms),
+                                                reset_ms, now_ms, window_ms)
+
+    sess_win = USAGE_SESSION_WINDOW * 1000
+    week_win = USAGE_WEEKLY_WINDOW * 1000
+    apply(out['session'],   'five_hour', sess_win)
+    apply(out['weeklyAll'], 'seven_day', week_win)
     if out.get('weeklyModel'):
         mn = (out['weeklyModel'].get('name') or '').lower()
         apply(out['weeklyModel'], 'seven_day_opus' if 'opus' in mn else
-              'seven_day_sonnet' if 'sonnet' in mn else 'seven_day')
+              'seven_day_sonnet' if 'sonnet' in mn else 'seven_day', week_win)
     out['source'] = 'live'
     out['calibrated'] = True     # canlı = kalibrasyona gerek yok
 
@@ -459,6 +476,21 @@ def _day_start_ms(dt: datetime) -> int:
     return int(datetime(dt.year, dt.month, dt.day).timestamp() * 1000)
 
 
+def _days_back_start_ms(now: datetime, days: int) -> int:
+    """`days` takvim günü öncesinin yerel gece yarısı.
+
+    Sabit 86.400.000 ms çıkarmak yerel günün her zaman 24 saat olduğunu varsayar; DST
+    uygulayan bölgelerde geçiş günü 23 veya 25 saattir. Eski hesapla "dün" penceresi bir
+    saat kayıyor, o saatteki harcama yanlış güne düşüyor ve 30 günlük listede bir tarih ya
+    tekrarlanıyor ya atlanıyordu. Türkiye 2016'dan beri sabit UTC+3 — bu kusur yayınlanan
+    aracı DST bölgesinde çalıştıran herkesi etkiliyordu.
+
+    Naif datetime aritmetiği takvimseldir (gün bileşenini kaydırır); yerel saat farkını
+    `timestamp()` çözer. Sıra bu yüzden önce tarih, sonra gece yarısı.
+    """
+    return _day_start_ms(now - timedelta(days=days))
+
+
 def compute_spend(days: int = 30) -> dict:
     """Today / Yesterday / son N gün gerçek $ + per-model + per-day kırılım (yerel gün sınırı)."""
     if os.environ.get('USAGE_DEMO') == '1':
@@ -467,8 +499,8 @@ def compute_spend(days: int = 30) -> dict:
     now = datetime.now()
     now_ms = int(now.timestamp() * 1000)
     today_start = _day_start_ms(now)
-    yday_start  = today_start - 86_400_000
-    window_start = today_start - (days - 1) * 86_400_000
+    yday_start  = _days_back_start_ms(now, 1)
+    window_start = _days_back_start_ms(now, days - 1)
 
     turns = _scan_turns(window_start)
 
@@ -516,9 +548,10 @@ def compute_spend(days: int = 30) -> dict:
          if pricing._norm(k) not in ('', '<synthetic>', 'synthetic')),
         key=lambda x: x['usd'], reverse=True,
     )
+    # Takvim günleri — sabit 24 saatlik adımlar DST geçişinde bir tarihi iki kez üretiyordu.
     day_list = [{'day': d, 'usd': round(by_day.get(d, 0.0), 4)}
-                for d in (datetime.fromtimestamp((window_start + i * 86_400_000) / 1000).strftime('%Y-%m-%d')
-                          for i in range(days))]
+                for d in ((now - timedelta(days=offset)).strftime('%Y-%m-%d')
+                          for offset in range(days - 1, -1, -1))]
 
     return {
         'currency':      'USD',
@@ -560,9 +593,18 @@ def usage_wire() -> dict:
         # 'used' = v0.2.0'da yayınlanan interop alan adı — dış tüketiciler (eww/tray/kullanıcı
         # scriptleri) buna bağlı, kaldırma. 'units' /api/usage ile aynı adı taşısın diye EK
         # olarak veriliyor; ikisi aynı değer. Tek ada indirme v0.3.0 (kırıcı) işi.
+        #
+        # 'forecast' burada DÜŞÜYORDU: compute_usage() hesaplıyor, bu fonksiyon kopyalamıyordu.
+        # Alan yalnız demo wire'ında vardı ve golden şema demo'dan üretildiği için 195 testin
+        # hiçbiri fark etmedi — panel, waybar ve tepsi üçü de okuduğu hâlde "limit dolacak"
+        # uyarısı gerçek kullanıcıda hiç görünmedi (2026-08-12 ölçümü).
+        # 'live'/'stale': sayının canlı uçtan mı geldiği ve tazeliği — karar veren yüzeyler
+        # (guard) için wire'daki tek bayatlık işareti.
         return {'pct': b.get('pct'), 'used': b.get('units'), 'units': b.get('units'),
                 'budget': b.get('budget'), 'calibSuspect': b.get('calibSuspect'),
-                'resetAtMs': b.get('resetAtMs'), 'resetInSec': b.get('resetInSec')}
+                'resetAtMs': b.get('resetAtMs'), 'resetInSec': b.get('resetInSec'),
+                'forecast': b.get('forecast'),
+                'live': bool(b.get('live')), 'stale': bool(b.get('stale'))}
 
     claude = {
         'id': 'claude', 'name': 'Claude Code',

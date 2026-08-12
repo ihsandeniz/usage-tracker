@@ -81,14 +81,17 @@
     "limits": {
       "session": {
         "budget": "number",
+        "calibSuspect": "null",
         "forecast": {
           "etaMs": "null",
           "etaText": "null",
           "willExceed": "bool"
         },
+        "live": "bool",
         "pct": "number",
         "resetAtMs": "number",
         "resetInSec": "number",
+        "stale": "bool",
         "units": "number",
         "used": "number"
       },
@@ -98,39 +101,49 @@
       },
       "weekly": {
         "budget": "number",
+        "calibSuspect": "null",
         "forecast": {
           "etaMs": "number",
           "etaText": "string",
           "willExceed": "bool"
         },
+        "live": "bool",
         "pct": "number",
         "resetAtMs": "number",
         "resetInSec": "number",
+        "stale": "bool",
         "units": "number",
         "used": "number"
       },
       "weeklyModel": {
         "budget": "number",
+        "calibSuspect": "null",
         "forecast": {
           "etaMs": "null",
           "etaText": "null",
           "willExceed": "bool"
         },
+        "live": "bool",
         "name": "string",
         "pct": "number",
         "resetAtMs": "number",
         "resetInSec": "number",
+        "stale": "bool",
         "units": "number",
         "used": "number"
       }
     },
     "live": {
+      "ageSec": "null",
       "cached": "bool",
       "error": "string",
+      "fetchedAtMs": "null",
       "ok": "bool",
       "rateLimitTier": "null",
       "rateLimited": "bool",
-      "stale": "bool"
+      "raw": "null",
+      "stale": "bool",
+      "windows": {}
     },
     "name": "string",
     "spend": {
@@ -142,7 +155,17 @@
           "usd": "number"
         }
       ],
-      "catalog": "null",
+      "catalog": {
+        "ageDays": "number",
+        "generatedAt": "string",
+        "modelCount": "number",
+        "path": "string",
+        "providerCount": "number",
+        "source": "string",
+        "sourceLabel": "string",
+        "stale": "bool",
+        "warning": "null"
+      },
       "currency": "string",
       "estimatedModels": [],
       "last30d": "number",

@@ -229,13 +229,13 @@ class Handler(BaseHTTPRequestHandler):
             req = self._read_json_body()
             if not isinstance(req, dict):
                 self._error(400, 'invalid request body'); return
-            hidden = req.get('hidden_providers')
-            if not isinstance(hidden, list):
-                self._error(400, 'hidden_providers must be a list'); return
-            # Tüm elemanlar string mi?
-            if not all(isinstance(x, str) for x in hidden):
-                self._error(400, 'hidden_providers must contain only strings'); return
-            ok = viewconfig.save_config({'hidden_providers': hidden})
+            # Tek doğrulayıcı: aynı kural CLI'da da geçerli (iki kopya biri diğerini
+            # yalanlar). Claude kartı burada da reddedilir — wire sözleşmesi bir görünüm
+            # tercihiyle kırılamaz.
+            ok, err = viewconfig.validate_config({'hidden_providers': req.get('hidden_providers')})
+            if not ok:
+                self._error(400, err); return
+            ok = viewconfig.save_config({'hidden_providers': req.get('hidden_providers')})
             if ok:
                 self._json(200, {'ok': True})
             else:

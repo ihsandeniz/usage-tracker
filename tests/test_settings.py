@@ -315,6 +315,32 @@ class HttpEndpoint(_Isolated):
                                     headers={'Origin': 'http://evil.example'})
                 self.assertEqual(code, 403, f'{path} still accepts a cross-origin write')
 
+    def test_a_request_without_an_origin_is_allowed_on_purpose(self):
+        """Pinning a decision, not an accident.
+
+        `curl`, the CLI and the tray send no Origin header at all; refusing them would break
+        every non-browser client to guard against a browser that cannot omit the header —
+        a cross-origin fetch always sends one, and a page cannot delete its own. Three
+        independent audits landed on this line in 2026-08; it stays, and now it is measured,
+        so tomorrow's change to it is a red test rather than a silent policy shift.
+        """
+        code, _ = self.call('POST', '/api/settings', {'refreshSeconds': 45})
+        self.assertEqual(code, 200)
+        self.assertEqual(settings.get_settings()['refreshSeconds'], 45)
+
+    def test_hiding_the_claude_card_is_refused_by_the_server_too(self):
+        """docs/WIRE.md:37 promises providers[0] is Claude. The panel offered a checkbox that
+        broke that promise — and with it the waybar badge and `guard`."""
+        code, body = self.call('POST', '/api/view-config', {'hidden_providers': ['claude']})
+        self.assertEqual(code, 400)
+        self.assertIn('claude', json.dumps(body).lower())
+        self.assertEqual(viewconfig.get_config()['hidden_providers'], [])
+
+    def test_hiding_another_card_still_works(self):
+        code, _ = self.call('POST', '/api/view-config', {'hidden_providers': ['ollama']})
+        self.assertEqual(code, 200)
+        self.assertEqual(viewconfig.get_config()['hidden_providers'], ['ollama'])
+
     def test_an_evil_host_header_is_refused(self):
         code, _ = self.call('GET', '/api/settings', headers={'Host': 'evil.example'})
         self.assertEqual(code, 403)

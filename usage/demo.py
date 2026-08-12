@@ -14,6 +14,8 @@ Schema: engine fonksiyonlarıyla AYNI yapı ve alan adları.
 import time
 from datetime import datetime, timedelta
 
+from . import pricing as _pricing
+
 
 # ── Sentez kontrol — demo veriye sabit bir seed'lik determinizm ──
 def _demo_seed() -> dict:
@@ -102,14 +104,10 @@ def compute_usage() -> dict:
             'forecast': demo_forecast(39.9, week_reset_ms, week_win),
         },
         'thresholds': {'warn': 75, 'crit': 90},
-        'live': {
-            'ok': False,
-            'error': 'demo mode — canlı veri kapalı',
-            'cached': False,
-            'stale': False,
-            'rateLimited': False,
-            'rateLimitTier': None,
-        },
+        # Tazelik alanları burada da var: üretimde `_with_freshness()` bunları HER zaman
+        # koyuyor, demo koymuyordu — golden şema demo'dan üretildiği için `fetchedAtMs`/
+        # `ageSec` hiçbir testte sabitlenmemişti.
+        'live': fetch(),
     }
 
 
@@ -209,6 +207,12 @@ def compute_spend(days: int = 30) -> dict:
         'byDay': by_day,
         'priceComplete': True,
         'estimatedModels': [],
+        'unknownPriceModels': [],
+        # Gerçek katalog durumu — sentetik bir kopya değil. docs/WIRE.md: dolar gösteren her
+        # yüzey `catalog.warning` doluysa onu göstermek ZORUNDA. Demo bu alanı hiç
+        # yayımlamıyordu; yani ekran görüntüsünde de, ilk kurulum turunda da o uyarı yolu
+        # tek bir kez bile çalışmıyordu ve golden şema onu göremiyordu.
+        'catalog': _pricing.catalog_status(),
         'source': 'demo',
         'note': 'Demo verisi — sentetik ama gerçekçi. Gerçek veri USAGE_DEMO ayarlanmadan yüklenir.',
     }
@@ -395,9 +399,16 @@ def usage_wire() -> dict:
             'used': b.get('units'),      # gerçek usage_wire() ile aynı sözleşme
             'units': b.get('units'),
             'budget': b.get('budget'),
+            'calibSuspect': b.get('calibSuspect'),
             'resetAtMs': b.get('resetAtMs'),
             'resetInSec': b.get('resetInSec'),
             'forecast': b.get('forecast'),
+            # Golden şema demo'dan üretiliyor: burada olmayan alan HİÇBİR testte sabitlenmiş
+            # olmaz. `forecast` tam tersi yönde kaybolmuştu (üretimde yoktu, demoda vardı) ve
+            # 195 test görmedi. Artık karşılaştırma alan alan yapılıyor — bu üç alan da o
+            # yüzden burada (bkz. test_wire_contract.DemoLooksLikeProduction).
+            'live': bool(b.get('live')),
+            'stale': bool(b.get('stale')),
         }
 
     claude = {
@@ -449,6 +460,8 @@ def fetch() -> dict:
         'ok': False,
         'error': 'demo mode — canlı veri kapalı',
         'cached': False,
+        'fetchedAtMs': None,
+        'ageSec': None,
         'stale': False,
         'rateLimited': False,
         'rateLimitTier': None,
