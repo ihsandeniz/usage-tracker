@@ -156,6 +156,11 @@ not carry their own copy; a hardcoded 75/90 that happens to match today will sil
 diverge the moment the server's config changes. A single fallback constant per surface, used
 only when the server cannot be reached, is the one exception.
 
+The server itself reads the pair from the user's `settings.json` (`usage/settings.py`),
+which the panel's ⚙ section and `usage-tracker config --warn/--crit` both write. Consumers
+never need to know that — the wire is the interface, and it is why moving the line in one
+place moves it in all four surfaces.
+
 ## Rounding
 
 Percentages are rendered to one decimal, **half-up** (`floor(x * 10 + 0.5) / 10`), on every

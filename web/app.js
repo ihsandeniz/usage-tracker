@@ -24,7 +24,17 @@ const I18N = {
     viewNote: 'Show the checked providers; unchecked ones are hidden from the panel/waybar/widget.',
     footerSrc: 'source: ~/.claude/projects + ~/.codex + OpenRouter API (read-only)',
     provSearchPlaceholder: 'Search provider name...', provTabAll: 'All', provTabActive: 'Active',
-    provTabApi: 'API key', provTabLocal: 'On disk', provNoMatch: 'No matches'
+    provTabApi: 'API key', provTabLocal: 'On disk', provNoMatch: 'No matches',
+    settings: 'Settings', setWarn: 'Warn threshold %', setCrit: 'Critical threshold %',
+    setRefresh: 'Refresh (s)', setCurrency: 'Display currency', setSave: 'Save',
+    setKeys: 'API keys', setSaved: '✓ saved', setSaving: 'saving…',
+    setThreshNote: 'One place for the threshold: the panel, the waybar badge, the tray and the '
+      + '`guard` command all read this pair.',
+    setRateNote: 'You enter the rate — the app never fetches one. The converted amount is shown '
+      + 'beside the dollars, with its rate and the day you entered it.',
+    setKeysNote: 'This server never writes keys and never shows their value — only the environment '
+      + 'variable name and whether it is set. To add a key: ./setup.sh --ui → step "keys".',
+    keySet: 'set', keyUnset: 'not set', rateAt: 'rate', enteredOn: 'entered'
   },
   tr: {
     spend: 'Gerçek Harcama', limits: 'Claude Limitleri', calibration: 'Kalibrasyon (yedek)', view: 'Görünüm',
@@ -45,7 +55,16 @@ const I18N = {
     viewNote: 'İşaretli sağlayıcıları göster; işaretsiz olanlar panel/waybar/widget\'tan gizlenir.',
     footerSrc: 'kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)',
     provSearchPlaceholder: 'Sağlayıcı adı ara...', provTabAll: 'Hepsi', provTabActive: 'Aktif',
-    provTabApi: 'API anahtarı', provTabLocal: 'Diskten', provNoMatch: 'Eşleşme yok'
+    provTabApi: 'API anahtarı', provTabLocal: 'Diskten', provNoMatch: 'Eşleşme yok',
+    settings: 'Ayarlar', setWarn: 'Uyarı eşiği %', setCrit: 'Kritik eşik %',
+    setRefresh: 'Yenileme (sn)', setCurrency: 'Görüntüleme para birimi', setSave: 'Kaydet',
+    setKeys: 'API anahtarları', setSaved: '✓ kaydedildi', setSaving: 'kaydediliyor…',
+    setThreshNote: 'Eşik tek yerde: panel, waybar rozeti, tepsi ve `guard` komutu aynı çifti okur.',
+    setRateNote: 'Kuru sen girersin — uygulama hiçbir yerden kur çekmez. Çevrilmiş tutar '
+      + 'dolarların yanında, kuru ve girdiğin tarihle gösterilir.',
+    setKeysNote: 'Bu sunucu anahtar yazmaz ve anahtarın değerini hiçbir zaman göstermez — yalnız '
+      + 'ortam değişkeninin adını ve dolu/boş durumunu. Anahtar eklemek için: ./setup.sh --ui → “keys” adımı.',
+    keySet: 'dolu', keyUnset: 'boş', rateAt: 'kur', enteredOn: 'girildi'
   }
 };
 
@@ -116,6 +135,7 @@ function renderSpend(s) {
   $('s-yday').textContent = fmtUsd(s.yesterday, s.currency);
   $('s-total').textContent = fmtUsd(s.total, s.currency);
   $('updated').textContent = t('updated') + ' ' + s.updated;
+  renderConverted(s);
 
   const flag = $('price-flag');
   if (s.priceComplete) { flag.textContent = '✓ tam fiyat'; flag.className = 'pill good'; }
@@ -504,6 +524,108 @@ function renderGlance(spend, usage) {
   $('glance-content').innerHTML = html;
 }
 
+// ── AYARLAR (FAZ 6/B) ─────────────────────────────────────
+// Eşik, yenileme aralığı ve görüntüleme para birimi. Anahtar YAZILMAZ — bkz. usage/settings.py.
+let SETTINGS = null;
+let POLL_TIMER = null;
+
+function schedulePoll(seconds) {
+  const sec = Number(seconds) > 0 ? Number(seconds) : 30;
+  if (POLL_TIMER) clearInterval(POLL_TIMER);
+  POLL_TIMER = setInterval(() => refresh().catch(e => console.error('refresh failed:', e)), sec * 1000);
+}
+
+function renderConverted(s) {
+  // Çevrilmiş tutar **ikinci** sıradadır: doları asla değiştirmez, yanına eklenir. Kur ve
+  // girildiği gün her zaman görünür — görünmezse tutar savunulamaz bir sayıya dönüşür.
+  const el = $('spend-converted');
+  if (!el) return;
+  const d = SETTINGS && SETTINGS.display;
+  const rate = d && Number(d.rate);
+  if (!d || !rate || rate <= 0 || (d.currency || 'USD') === 'USD' || (s.currency || 'USD') !== 'USD') {
+    el.style.display = 'none';
+    return;
+  }
+  const day = d.rateSetAtMs ? new Date(d.rateSetAtMs).toLocaleDateString() : '?';
+  el.textContent = '≈ ' + fmtUsd(s.total * rate, d.currency) + ' · '
+    + t('rateAt') + ' 1 USD = ' + rate + ' ' + d.currency + ' · ' + t('enteredOn') + ' ' + day;
+  el.style.display = '';
+}
+
+function renderKeyStatus(keys) {
+  // Yalnız ad + dolu/boş. Değer sunucudan zaten hiç gelmiyor (§güvenlik 3).
+  $('settings-keys').innerHTML = (keys || []).map(k => `
+    <div class="set-key-row">
+      <span class="set-key-name">${esc(k.provider)}</span>
+      <code>${esc(k.env)}</code>
+      <span class="pill ${k.set ? 'good' : 'muted'}">${k.set ? t('keySet') : t('keyUnset')}</span>
+    </div>`).join('') || '<div class="muted">—</div>';
+}
+
+function syncRateField() {
+  const cur = $('set-currency').value;
+  const field = $('set-rate-field');
+  field.style.display = cur === 'USD' ? 'none' : '';
+  $('set-rate-label').textContent = '1 USD = ? ' + cur;
+}
+
+async function loadSettings() {
+  try {
+    const data = await getJSON('/api/settings');
+    SETTINGS = data.settings;
+    $('set-warn').value = SETTINGS.thresholds.warn;
+    $('set-crit').value = SETTINGS.thresholds.crit;
+    $('set-refresh').value = SETTINGS.refreshSeconds;
+    $('set-currency').value = SETTINGS.display.currency || 'USD';
+    $('set-rate').value = SETTINGS.display.rate ?? '';
+    syncRateField();
+    renderKeyStatus(data.keys);
+    schedulePoll(SETTINGS.refreshSeconds);
+  } catch (e) {
+    console.error('loadSettings failed:', e);
+    schedulePoll(30);            // ayar okunamadıysa panel yine de tazelenmeli
+  }
+}
+
+async function submitSettings() {
+  const msg = $('settings-msg');
+  msg.textContent = t('setSaving');
+  msg.className = 'pill muted';
+
+  const patch = {
+    thresholds: { warn: Number($('set-warn').value), crit: Number($('set-crit').value) },
+    refreshSeconds: Number($('set-refresh').value),
+    display: { currency: $('set-currency').value },
+  };
+  if (patch.display.currency !== 'USD') patch.display.rate = Number($('set-rate').value);
+
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const body = await r.json();
+    if (r.ok && body.ok) {
+      SETTINGS = body.settings;
+      // Sunucunun döndürdüğünü geri yaz: kur tarihini sunucu bastı, ekran onu göstermeli.
+      $('set-rate').value = SETTINGS.display.rate ?? '';
+      msg.textContent = t('setSaved');
+      msg.className = 'pill good';
+      setTimeout(() => { msg.textContent = '—'; msg.className = 'pill muted'; }, 2000);
+      schedulePoll(SETTINGS.refreshSeconds);
+      refresh();
+    } else {
+      // Sunucunun gerekçesi gösterilir — "kaydedilemedi" kullanıcıya hiçbir şey söylemez.
+      msg.textContent = '✗ ' + (body.error || r.status);
+      msg.className = 'pill warn';
+    }
+  } catch (e) {
+    msg.textContent = '✗ ' + e.message;
+    msg.className = 'pill warn';
+  }
+}
+
 // ── GÖRÜNÜM AYARLARI (FAZ 4a) ─────────────────────────────
 async function loadViewConfig() {
   try {
@@ -669,4 +791,9 @@ if (footerAddr) footerAddr.textContent = location.host;
 
 refresh();
 loadViewConfig();
-setInterval(() => refresh().catch(e => console.error('refresh failed:', e)), 30000);   // 30sn'de bir tazele
+// Yoklama aralığı artık sabit değil — ayarlardan gelir (FAZ 6/B). loadSettings() zamanlayıcıyı
+// kendisi kurar; uç erişilemezse 30 sn'ye düşer, panel yine de tazelenir.
+loadSettings();
+
+$('settings-save').addEventListener('click', submitSettings);
+$('set-currency').addEventListener('change', syncRateField);

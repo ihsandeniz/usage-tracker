@@ -187,7 +187,13 @@ python3 server.py providers    # hangi kartlar var, biri neden yok
 python3 server.py guard        # çıkış kodu: 0 iyi · 1 uyarı · 2 kritik · 3 bilinmiyor
 python3 server.py watch        # eşik geçişinde bir kez tetikler (--exec / --notify)
 python3 server.py doctor       # log istemeden kurulum teşhisi
-python3 server.py config       # hangi kartlar görünür
+python3 server.py config       # hangi kartlar görünür + eşik/yenileme
+```
+
+Eşiği tek yerden taşırsın, **dört yüzey birden** uyar — çünkü çift wire'ın içinde gezer:
+
+```bash
+python3 server.py config --warn 60 --crit 85   # panel · waybar · tepsi · guard
 ```
 
 Sunucu gerekmez (`:8770` cevap vermiyorsa sayıları kendi hesaplar), bash/curl/jq de
@@ -205,9 +211,27 @@ Tam referans (çıkış kodu sözleşmesi + `watch --exec`'in verdiği `UT_*` de
 
 Adaptörler `usage/providers/` altında. Her modül `collect(days) -> dict | None` sunar; `None` = "kart yok" (yapılandırılmamış sağlayıcı sessizce gizlenir — **ölü kart yok**). Eklemek için `usage/providers/<ad>.py` bırak ve `_ADAPTERS`'a kaydet. OpenRouter ortamdan `$OPENROUTER_API_KEY` okur.
 
+## Ayarlar
+
+Panelin **⚙ Ayarlar** bölümü (ya da `config` komutu) üç şeyi değiştirir: uyarı/kritik eşiği,
+panelin yenileme aralığı ve görüntüleme para birimi. Hepsi `settings.json`'a yazılır;
+eşik oradan `/v1/usage`'ın tepesine, oradan da bütün yüzeylere gider.
+
+**Para birimi bir dönüşümdür, bir gerçek değil.** Kuru sen girersin — uygulama hiçbir yerden
+kur çekmez. Çevrilmiş tutar dolarların *yanında*, kuruyla ve girdiğin tarihle gösterilir:
+`≈ ₺210.850,89 · kur 1 USD = 41,2 TRY · girildi 12.08.2026`. Kaynağı görünmeyen çevrilmiş
+sayı, savunulamayan sayıdır.
+
+**Anahtarlar buradan yazılmaz.** Panel ve `config`, ortam değişkeninin *adını* ve dolu/boş
+olduğunu gösterir; değerini asla. Anahtar yazma işi `./setup.sh --ui` (adım `keys`) içinde
+kalır: rastgele port + tek kullanımlık jeton + kendini kapatma. Kalıcı panel sunucusunun
+üçü de yok ve gün boyu açık duruyor — o yüzden oraya bu yetki verilmedi.
+
 ## Güvenlik & gizlilik
 
 - Yalnızca **`127.0.0.1`** dinler — ağa asla açılmaz.
+- Yazan uçlar `Host` **ve** `Origin` doğrular: internetteki bir sayfa loopback'e istek
+  atabilir, ama yabancı `Origin` ile yazamaz (403).
 - Verilerine **salt-okunur**. `~/.claude/.credentials.json`'daki OAuth token'ı yalnızca *okunur*, asla yazılmaz/yenilenmez (yazmak aktif oturumu düşürebilir).
 - Telemetri yok; zaten kullandığın sağlayıcı API'leri dışında dış çağrı yok.
 - Statik dosya servisi path-traversal korumalı.

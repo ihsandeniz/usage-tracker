@@ -362,6 +362,38 @@ body.glance #glance-content { display:flex; }
   padding:40px 20px;
 }
 
+/* ── ayarlar (FAZ 6/B) ── */
+.settings-section { grid-column:1/-1; }
+.set-grid {
+  display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px 16px; margin:14px 0 4px;
+}
+@media(max-width:640px) { .set-grid { grid-template-columns:1fr; } }
+.set-field { display:flex; flex-direction:column; gap:6px; font-size:12px; color:var(--muted2); }
+.set-field input, .set-field select {
+  background:var(--card2); color:var(--txt); border:1px solid var(--line2);
+  border-radius:8px; padding:8px 10px; font:14px/1.2 inherit; width:100%;
+}
+.set-field input:focus, .set-field select:focus {
+  outline:none; border-color:var(--cyan); box-shadow:0 0 0 2px rgba(34,211,238,.18);
+}
+.set-actions { margin:14px 0 0; }
+.set-actions .btn {
+  background:var(--cyan-dim); color:var(--txt); border:1px solid var(--cyan);
+  border-radius:8px; padding:8px 18px; font:600 13px/1.2 inherit; cursor:pointer;
+  transition:background .2s;
+}
+.set-actions .btn:hover { background:var(--cyan); color:var(--bg); }
+.set-keys { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+.set-keys summary { cursor:pointer; font-size:13px; color:var(--muted2); user-select:none; }
+.set-keys-list { display:grid; gap:6px; margin:12px 0 0; }
+.set-key-row {
+  display:grid; grid-template-columns:minmax(80px,1fr) minmax(0,2fr) auto;
+  align-items:center; gap:10px; font-size:12px;
+}
+.set-key-row code { color:var(--muted2); overflow-wrap:anywhere; }
+.set-key-name { color:var(--txt); }
+.note.conv { color:var(--gold); }
+
 /* ── görünüm ayarları (FAZ 4a) ── */
 .view-section { grid-column:1/-1; }
 .view-providers-list {
@@ -387,10 +419,12 @@ body.glance #glance-content { display:flex; }
 }
 
 /* ── widget modunda görünüm gizle ── */
-body.widget .view-section { display:none; }
+body.widget .view-section,
+body.widget .settings-section { display:none; }
 
 /* ── glance modunda görünüm gizle ── */
-body.glance .view-section { display:none; }
+body.glance .view-section,
+body.glance .settings-section { display:none; }
 
 /* ── prefers-reduced-motion: checkbox efektleri sade ── */
 @media (prefers-reduced-motion: reduce) {

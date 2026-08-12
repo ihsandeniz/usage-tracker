@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from usage import engine, viewconfig   # noqa: E402
+from usage import engine, settings, viewconfig   # noqa: E402
 
 VERSION = '0.2.2'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
@@ -75,6 +75,25 @@ class Handler(BaseHTTPRequestHandler):
         if host_header not in ALLOWED_HOSTS:
             self._error(403, 'bad Host header'); return False
         return True
+
+    def _check_origin(self) -> bool:
+        """CSRF guard (§güvenlik 2 — setup_server.py'den kalıcı sunucuya taşındı).
+
+        `Content-Type: application/json` şartı tek başına kilit değil: kilit olduğu
+        varsayımı tarayıcı sürümüne bağlıdır. İnternetteki bir sayfa 127.0.0.1'e istek
+        atabilir — atarsa `Origin` başlığını **kendi** adresiyle gönderir ve buradan döner.
+
+        Origin **yoksa** geçer: tarayıcı dışı istemcilerde (curl, script) yoktur ve bir
+        sayfa kendi Origin'ini silemez — yani yokluk bir saldırı yüzeyi değil.
+        """
+        origin = (self.headers.get('Origin') or '').strip()
+        if not origin:
+            return True
+        netloc = urlparse(origin).netloc
+        host = (self.headers.get('Host') or '').strip()
+        if netloc and (netloc == host or netloc in ALLOWED_HOSTS):
+            return True
+        self._error(403, 'cross-origin write refused'); return False
 
     def _read_json_body(self, limit: int = 2048):
         try:
@@ -131,6 +150,13 @@ class Handler(BaseHTTPRequestHandler):
             # Yoksa user config'e göre süz
             self._json(200, viewconfig.filter_wire(wire)); return
 
+        if path in ('/api/settings', '/api/settings/'):
+            # Eşik/yenileme/görüntüleme tercihleri + anahtarların **durumu**.
+            # `keys` yalnız ad + set/unset taşır — değer hiçbir GET'ten çıkmaz (§güvenlik 3).
+            self._json(200, {'settings': settings.get_settings(),
+                             'keys': settings.key_status(),
+                             'keysAreReadOnly': True}); return
+
         if path in ('/api/view-config', '/api/view-config/'):
             # Config + available sağlayıcıları dön (GET only)
             cfg = viewconfig.get_config()
@@ -167,8 +193,25 @@ class Handler(BaseHTTPRequestHandler):
         # DNS rebinding koruması: Host başlığını kontrol et
         if not self._check_host():
             return
+        # CSRF: yabancı bir sayfa loopback'e yazamaz
+        if not self._check_origin():
+            return
 
         path = self.path.split('?')[0]
+        if path in ('/api/settings', '/api/settings/'):
+            ct = self.headers.get('Content-Type', '').lower()
+            if 'application/json' not in ct:
+                self._error(400, 'expected Content-Type: application/json'); return
+            req = self._read_json_body()
+            if not isinstance(req, dict):
+                self._error(400, 'invalid request body'); return
+            ok, err = settings.save_settings(req)
+            if ok:
+                self._json(200, {'ok': True, 'settings': settings.get_settings()})
+            else:
+                self._error(400, err)
+            return
+
         if path in ('/api/calibrate', '/api/calibrate/'):
             # Content-Type validation
             ct = self.headers.get('Content-Type', '').lower()

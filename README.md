@@ -236,7 +236,13 @@ python3 server.py providers    # which cards exist, and why one is missing
 python3 server.py guard        # exit 0 ok · 1 warn · 2 critical · 3 unknown
 python3 server.py watch        # fire once per threshold crossing (--exec / --notify)
 python3 server.py doctor       # diagnose an installation without asking for logs
-python3 server.py config       # which cards are visible
+python3 server.py config       # visible cards, thresholds, refresh interval
+```
+
+One place moves the alert line for **all four surfaces**, because the pair travels in the wire:
+
+```bash
+python3 server.py config --warn 60 --crit 85   # panel · waybar · tray · guard
 ```
 
 No server needed (it computes locally when nothing answers on `:8770`), and no bash, curl or
@@ -257,7 +263,7 @@ the exact paths on your machine.
 
 | | Linux / BSD | Windows |
 |---|---|---|
-| view config | `~/.config/usage-tracker/` | `%APPDATA%\usage-tracker\` |
+| view config, settings | `~/.config/usage-tracker/` | `%APPDATA%\usage-tracker\` |
 | calibration, live cache | `~/.local/state/usage-tracker/` | `%LOCALAPPDATA%\usage-tracker\State\` |
 | fetched price catalogue | `~/.cache/usage-tracker/` | `%LOCALAPPDATA%\usage-tracker\Cache\` |
 
@@ -273,6 +279,23 @@ WIDGET_SIZE="360x520"                 # floating widget initial size (you can dr
 WIDGET_CLASS="usage-tracker-widget"
 ```
 
+### Settings
+
+The panel's **⚙ Settings** section — and `config` on the command line — change three things:
+the warn/critical thresholds, how often the panel polls, and the display currency. They land
+in `settings.json`, and the thresholds travel from there to the top of `/v1/usage`, which is
+why moving them once moves every surface.
+
+**A converted amount is derived, not measured.** You enter the rate; the app never fetches
+one. The result is shown *beside* the dollars, carrying its rate and the day you entered it:
+`≈ ₺210,850.89 · rate 1 USD = 41.2 TRY · entered 12.08.2026`. A converted number without a
+visible source is a number nobody can defend.
+
+**Keys are not writable here.** The panel and `config` show the environment variable name and
+whether it is set — never the value. Writing keys stays in `./setup.sh --ui` (step `keys`),
+which runs on a random port behind a one-time token and shuts itself down. The permanent
+panel server has none of those properties and is up all day, so it was not given the power.
+
 ### Adding providers
 
 Provider adapters live in `usage/providers/`. Each module exposes `collect(days) -> dict | None`; returning `None` means "no card" (a missing/unconfigured provider is silently hidden — **no dead cards**). To add one, drop `usage/providers/<name>.py` and register it in `_ADAPTERS`. OpenRouter reads `$OPENROUTER_API_KEY` from the environment.
@@ -286,6 +309,8 @@ Provider adapters live in `usage/providers/`. Each module exposes `collect(days)
 | `GET /api/live[?force=1]` | Raw Anthropic live usage (verification) |
 | `GET /api/providers` | Multi-provider cards |
 | `GET /v1/usage` | Stable wire-format (`schema: usage/v1`) — used by the waybar feeder |
+| `GET /api/settings` | Thresholds, refresh, display currency + key **names** and set/unset |
+| `POST /api/settings` | Change them (validated; keys are refused by design) |
 
 `/v1/usage` is a public contract, not an internal detail: four surfaces here read it and so may
 your scripts. The fields, the compatibility rules and what changed when are in
@@ -297,6 +322,9 @@ your scripts. The fields, the compatibility rules and what changed when are in
 - **Read-only** to your data. OAuth tokens in `~/.claude/.credentials.json` are only *read*, never written or refreshed (writing could drop your active session).
 - No telemetry, no external calls except the providers' own APIs you already use.
 - Static file serving is path-traversal protected.
+- Writing endpoints validate both `Host` and `Origin`. A page on the open internet can reach
+  `127.0.0.1`, but it cannot write: a foreign `Origin` is refused with 403.
+- No endpoint ever returns an API key's value, and none writes one.
 
 ## Development
 
@@ -325,6 +353,7 @@ to it; the short version is *write the failing test first, and assert the number
 - [x] Optional native system-tray icon (Qt `QSystemTrayIcon`; SNI → waybar tray)
 - [x] CLI — `usage` / `providers` / `guard` / `watch` / `doctor` / `config`, with a documented
       exit-code contract for scripts ([`docs/CLI.md`](docs/CLI.md))
+- [x] Panel ⚙ settings — thresholds / refresh / display currency, plus read-only key status
 - [ ] Verify candidate endpoints (Together / Novita / DeepInfra / HuggingFace / DeepSeek) against live keys
 
 ## Contributing

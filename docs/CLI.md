@@ -191,17 +191,39 @@ is a normal state for someone who only uses the CLI.
 diagnostic people paste in public must not carry their credentials. By default it also does
 not contact any provider API; `--probe` opts into that explicitly.
 
-## `config` — which cards you want to see
+## `config` — what you want to see, and where the alert line sits
 
 ```bash
-usage-tracker config                  # what is hidden right now
+usage-tracker config                       # cards, thresholds, refresh — and the file paths
 usage-tracker config --hide ollama
 usage-tracker config --show ollama
 usage-tracker config --reset
+
+usage-tracker config --warn 60 --crit 85   # move the alert line for EVERY surface
+usage-tracker config --refresh 60          # how often the panel polls, in seconds
 ```
 
-Writes the same `view_config.json` the panel's ⚙ Görünüm modal writes, so panel, waybar,
-tray and CLI stay in agreement.
+Card visibility writes `view_config.json`; thresholds and the refresh interval write
+`settings.json`. Both are the same files the panel's ⚙ section writes, so panel, waybar,
+tray and CLI never disagree.
+
+Moving a threshold here moves it everywhere, because the pair travels in the wire:
+
+```console
+$ usage-tracker config --warn 10 --crit 20
+$ usage-tracker guard ; echo $?
+crit: claude/weekly at 69.0% (over 20.0)
+2
+```
+
+Thresholds are validated in one place (`usage/settings.py`): `0 < warn < crit <= 100`.
+A rejected write leaves the previous pair untouched and exits 1 with the reason — silently
+resetting to 75/90 would only be discovered when an alert failed to fire.
+
+**Keys are not settable here, or in the panel.** Both surfaces show the environment variable
+name and whether it is set, never the value. Writing keys belongs to `./setup.sh --ui`
+(step `keys`), which runs on a random port behind a one-time token and shuts itself down;
+the panel server has none of those properties and stays up all day.
 
 ## Design notes
 

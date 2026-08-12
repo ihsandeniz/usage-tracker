@@ -52,6 +52,8 @@
       <thead><tr><th>Model</th><th data-i18n="source">Kaynak</th><th class="r">Token (out/in/cache)</th><th class="r">$</th></tr></thead>
       <tbody id="model-rows"></tbody>
     </table>
+    <!-- Çevrilmiş karşılık ikinci sıradadır ve kurunu yanında taşır (FAZ 6/B) -->
+    <p id="spend-converted" class="note conv" style="display:none"></p>
     <p id="spend-note" class="note"></p>
   </section>
 
@@ -117,10 +119,62 @@
     <p class="note" data-i18n="provNote">Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.</p>
   </section>
 
+  <!-- ── AYARLAR (FAZ 6/B) ──────────────────────────────── -->
+  <section class="card settings-section">
+    <div class="card-head">
+      <h2><span>⚙️</span> <span data-i18n="settings">Ayarlar</span></h2>
+      <span id="settings-msg" class="pill muted">—</span>
+    </div>
+
+    <div class="set-grid">
+      <label class="set-field">
+        <span data-i18n="setWarn">Uyarı eşiği %</span>
+        <input id="set-warn" type="number" min="1" max="99" step="1" inputmode="numeric">
+      </label>
+      <label class="set-field">
+        <span data-i18n="setCrit">Kritik eşik %</span>
+        <input id="set-crit" type="number" min="2" max="100" step="1" inputmode="numeric">
+      </label>
+      <label class="set-field">
+        <span data-i18n="setRefresh">Yenileme (sn)</span>
+        <input id="set-refresh" type="number" min="5" max="3600" step="5" inputmode="numeric">
+      </label>
+    </div>
+    <p class="note" data-i18n="setThreshNote">Eşik tek yerde: panel, waybar rozeti, tepsi ve <code>guard</code> komutu aynı çifti okur.</p>
+
+    <div class="set-grid">
+      <label class="set-field">
+        <span data-i18n="setCurrency">Görüntüleme para birimi</span>
+        <select id="set-currency">
+          <option value="USD">USD ($)</option>
+          <option value="TRY">TRY (₺)</option>
+          <option value="EUR">EUR (€)</option>
+          <option value="GBP">GBP (£)</option>
+          <option value="CNY">CNY (¥)</option>
+        </select>
+      </label>
+      <label class="set-field" id="set-rate-field" style="display:none">
+        <span id="set-rate-label">1 USD =</span>
+        <input id="set-rate" type="number" min="0" step="0.0001" inputmode="decimal">
+      </label>
+    </div>
+    <p class="note" data-i18n="setRateNote">Kuru sen girersin — uygulama hiçbir yerden kur çekmez. Çevrilmiş tutar dolarların <em>yanında</em>, kuru ve girdiğin tarihle gösterilir.</p>
+
+    <div class="set-actions">
+      <button id="settings-save" class="btn" data-i18n="setSave">Kaydet</button>
+    </div>
+
+    <details class="set-keys">
+      <summary data-i18n="setKeys">API anahtarları</summary>
+      <div id="settings-keys" class="set-keys-list"></div>
+      <p class="note" data-i18n="setKeysNote">Bu sunucu anahtar yazmaz ve anahtarın değerini hiçbir zaman göstermez — yalnız ortam değişkeninin adını ve dolu/boş durumunu. Anahtar eklemek için: <code>./setup.sh --ui</code> → “keys” adımı.</p>
+    </details>
+  </section>
+
   <!-- ── GÖRÜNÜM AYARLARI (FAZ 4a) ──────────────────────── -->
   <section class="card view-section">
     <div class="card-head">
-      <h2><span>⚙️</span> <span data-i18n="view">Görünüm</span></h2>
+      <h2><span>👁️</span> <span data-i18n="view">Görünüm</span></h2>
       <span id="view-save-msg" class="pill muted">—</span>
     </div>
     <p class="note" data-i18n="viewNote">İşaretli sağlayıcıları göster; işaretsiz olanlar panel/waybar/widget'tan gizlenir.</p>
@@ -129,6 +183,6 @@
 </main>
 
 <footer><span class="muted"><span id="footer-addr">127.0.0.1:8770</span> · stdlib-only · <span data-i18n="footerSrc">kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)</span></span></footer>
-<script src="/app.js?v=10"></script>
+<script src="/app.js?v=11"></script>
 </body>
 </html>

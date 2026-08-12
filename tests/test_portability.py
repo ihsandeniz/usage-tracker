@@ -230,6 +230,7 @@ class NothingWritesIntoTheInstallation(unittest.TestCase):
     WRITERS = [
         ('usage.engine',     'CALIB_PATH',   'usage_calib.json'),
         ('usage.viewconfig', 'CONFIG_PATH',  'view_config.json'),
+        ('usage.settings',   'SETTINGS_PATH', 'settings.json'),
     ]
 
     def test_state_files_live_outside_the_code(self):

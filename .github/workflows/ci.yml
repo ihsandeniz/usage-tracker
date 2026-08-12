@@ -175,6 +175,58 @@ jobs:
           jq -e 'has("class") and has("tooltip")' wb.json >/dev/null
           echo "cli feeder ok"
 
+      - name: A threshold saved in the panel reaches the wire and the guard
+        # The whole point of FAZ 6/B. Unit tests prove settings.py stores the pair; this
+        # proves the pair actually travels: HTTP write → /v1/usage → a CLI that never saw
+        # the panel. A setting no surface reads is a placebo (that was Y6).
+        run: |
+          curl -sf -X POST 127.0.0.1:8770/api/settings \
+               -H 'Content-Type: application/json' \
+               -d '{"thresholds":{"warn":10,"crit":20}}' -o saved.json
+          jq -e '.ok == true and .settings.thresholds.crit == 20' saved.json >/dev/null
+
+          curl -sf 127.0.0.1:8770/v1/usage -o wire2.json
+          jq -e '.thresholds.warn == 10 and .thresholds.crit == 20' wire2.json >/dev/null \
+            || { echo "::error::the saved threshold never reached the wire"; exit 1; }
+          jq -e '.providers[0].limits.thresholds.crit == 20' wire2.json >/dev/null \
+            || { echo "::error::the compatibility copy drifted from the top level"; exit 1; }
+
+          python -m usage.cli guard --json --url http://127.0.0.1:8770/v1/usage \
+            | jq -e '.thresholds.crit == 20' >/dev/null \
+            || { echo "::error::the CLI still reads its own threshold"; exit 1; }
+
+      - name: Writing endpoints refuse a foreign origin and never take a key
+        # A page on the open internet can reach 127.0.0.1. §güvenlik 2 is what stops it
+        # writing, and it lives on the permanent server now — not only in the setup wizard.
+        run: |
+          evil=$(curl -s -o /dev/null -w '%{http_code}' -X POST 127.0.0.1:8770/api/settings \
+                 -H 'Content-Type: application/json' -H 'Origin: http://evil.example' \
+                 -d '{"refreshSeconds":60}')
+          [ "$evil" = 403 ] || { echo "::error::cross-origin write returned $evil, not 403"; exit 1; }
+
+          for p in /api/settings /api/view-config /api/calibrate; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "127.0.0.1:8770$p" \
+                   -H 'Content-Type: application/json' -H 'Origin: http://evil.example' -d '{}')
+            [ "$code" = 403 ] || { echo "::error::$p accepted a cross-origin write ($code)"; exit 1; }
+          done
+
+          curl -s -X POST 127.0.0.1:8770/api/settings -H 'Content-Type: application/json' \
+               -d '{"keys":{"OPENROUTER_API_KEY":"sk-or-nope"}}' -o keys.json
+          jq -e '.ok == false' keys.json >/dev/null \
+            || { echo "::error::the panel server accepted an API key"; exit 1; }
+
+          # And no GET may hand one back. The variable has to be set for the *server*, not
+          # for curl — a canary the server never held would make this step pass for nothing.
+          OPENROUTER_API_KEY=sk-or-CANARY-42 USAGE_PORT=8772 python server.py &
+          for i in $(seq 1 30); do curl -sf 127.0.0.1:8772/api/settings >/dev/null && break; sleep 0.5; done
+          curl -sf 127.0.0.1:8772/api/settings -o s.json
+          jq -e '.keys[] | select(.provider == "openrouter") | .set == true' s.json >/dev/null \
+            || { echo "::error::the canary key was not visible to the server — this check proves nothing"; exit 1; }
+          if grep -q 'CANARY' s.json; then
+            echo "::error::a key value leaked through /api/settings"; exit 1
+          fi
+          echo "settings guards ok"
+
       - name: Demo mode renders too
         run: |
           # Each `run` is its own shell, so job control (`kill %1`) is not available here —

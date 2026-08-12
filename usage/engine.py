@@ -21,6 +21,7 @@ from pathlib import Path
 from . import pricing
 from . import live
 from . import platform as _paths
+from . import settings as _settings
 
 CLAUDE_PROJECTS_DIR  = Path.home() / '.claude' / 'projects'
 # Kalibrasyon kullanıcının verisidir, kurulumun değil: kod salt-okunur bir yerde
@@ -330,7 +331,9 @@ def compute_usage() -> dict:
         'session':     bar(sess_u, sess_r, calib.get('sessionBudget'),      sess_reset, sess_win),
         'weeklyAll':   bar(week_u, week_r, calib.get('weeklyBudget'),        week_reset, week_win),
         'weeklyModel': {**bar(mod_u, mod_r, calib.get('weeklyModelBudget'),  week_reset, week_win), 'name': mname} if mname else None,
-        'thresholds':  calib.get('thresholds') if isinstance(calib.get('thresholds'), dict) else {'warn': 75, 'crit': 90},
+        # Eşik artık bir tercih dosyasında (FAZ 6/B, usage/settings.py); eski kalibrasyon
+        # dosyasına yazmış olanlar oradan okunmaya devam eder — kimse ayarını kaybetmez.
+        'thresholds':  _settings.thresholds(),
     }
     _overlay_live(out, now_ms)
     return out
@@ -441,11 +444,12 @@ def calibrate_usage(req) -> tuple:
     calib['weeklyModelName']   = mname
     calib['weeklyModelBudget'] = round(mod_u / (mod_pct / 100)) if mname and mod_pct > 0 and mod_u > 0 else None
     calib['calibratedAtMs']    = now_ms
+    # Eşik kalibrasyonun bir parçası değil, bir tercih — sahibi settings.py (FAZ 6/B).
+    # Bu uç eskiden eşiği de kabul ediyordu; sözleşmeyi bozmamak için hâlâ kabul ediyor,
+    # ama yazma tek yerden geçiyor (aynı doğrulama, tek dosya).
     th = req.get('thresholds')
     if isinstance(th, dict):
-        w, c = th.get('warn'), th.get('crit')
-        if isinstance(w, (int, float)) and isinstance(c, (int, float)) and 0 < w < c <= 100:
-            calib['thresholds'] = {'warn': w, 'crit': c}
+        _settings.save_settings({'thresholds': th})
     ok = _save_calib(calib)
     return (ok, None if ok else 'kaydedilemedi')
 

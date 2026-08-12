@@ -44,10 +44,11 @@ from pathlib import Path
 
 if __package__ in (None, ''):                     # `python3 usage/cli.py` de çalışsın
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from usage import engine, platform as _paths, viewconfig
+    from usage import engine, platform as _paths, settings, viewconfig
 else:
     from . import engine
     from . import platform as _paths
+    from . import settings
     from . import viewconfig
 
 
@@ -69,17 +70,9 @@ DEFAULT_BASE = os.environ.get('USAGE_URL', f'http://127.0.0.1:{DEFAULT_PORT}')
 CURRENCY_SYMBOLS = {'USD': '$', 'EUR': '€', 'CNY': '¥', 'GBP': '£', 'TRY': '₺'}
 
 # Provider → environment variable. Names only; doctor prints whether they are set and never
-# what they contain (people paste diagnostics into public bug reports).
-PROVIDER_ENV = {
-    'openrouter': ('OPENROUTER_API_KEY',),
-    'openai': ('OPENAI_ADMIN_KEY',),
-    'deepseek': ('DEEPSEEK_API_KEY',),
-    'elevenlabs': ('ELEVENLABS_API_KEY',),
-    'together': ('TOGETHER_API_KEY',),
-    'novita': ('NOVITA_API_KEY',),
-    'deepinfra': ('DEEPINFRA_API_KEY',),
-    'huggingface': ('HUGGINGFACE_API_KEY', 'HF_TOKEN'),
-}
+# what they contain (people paste diagnostics into public bug reports). One map, shared with
+# the panel's settings page — two copies would drift and each would call the other a liar.
+PROVIDER_ENV = settings.PROVIDER_ENV
 
 
 def version() -> str:
@@ -772,15 +765,36 @@ def cmd_config(args) -> int:
         _fail('could not save the configuration')
         return 1
 
+    # Thresholds and the poll interval are the same settings the panel edits (FAZ 6/B).
+    # Reachable without a browser on purpose: a headless box has no panel to open.
+    patch = {}
+    if args.warn is not None or args.crit is not None:
+        current = settings.get_settings()['thresholds']
+        patch['thresholds'] = {'warn': args.warn if args.warn is not None else current['warn'],
+                               'crit': args.crit if args.crit is not None else current['crit']}
+    if args.refresh is not None:
+        patch['refreshSeconds'] = args.refresh
+    if patch:
+        ok, err = settings.save_settings(patch)
+        if not ok:
+            _fail(err)
+            return 1
+
+    prefs = settings.get_settings()
     if args.json:
-        print(json.dumps({'hidden': hidden, 'path': str(viewconfig.CONFIG_PATH)},
+        print(json.dumps({'hidden': hidden, 'path': str(viewconfig.CONFIG_PATH),
+                          'settings': prefs, 'settingsPath': str(settings.SETTINGS_PATH)},
                          ensure_ascii=False))
         return 0
 
     print(f'config file: {viewconfig.CONFIG_PATH}')
     print(f'hidden providers: {", ".join(hidden) if hidden else "(none)"}')
-    if not changed and not hidden:
+    print(f'settings file: {settings.SETTINGS_PATH}')
+    print(f'thresholds: warn {prefs["thresholds"]["warn"]}%  crit {prefs["thresholds"]["crit"]}%'
+          f'   refresh: {prefs["refreshSeconds"]}s')
+    if not changed and not hidden and not patch:
         print('hide a card with `config --hide <id>`; `providers` lists the ids')
+        print('move the alert line with `config --warn 60 --crit 85` (every surface follows)')
     return 0
 
 
@@ -868,10 +882,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_source_flags(p_doc)
     p_doc.set_defaults(func=cmd_doctor)
 
-    p_cfg = subparsers.add_parser('config', help='show or edit which cards are visible')
+    p_cfg = subparsers.add_parser('config', help='show or edit cards, thresholds and refresh')
     p_cfg.add_argument('--hide', action='append', metavar='ID')
     p_cfg.add_argument('--show', action='append', metavar='ID')
     p_cfg.add_argument('--reset', action='store_true', help='make every card visible again')
+    p_cfg.add_argument('--warn', type=float, metavar='PCT',
+                       help='warn threshold; every surface reads this pair')
+    p_cfg.add_argument('--crit', type=float, metavar='PCT', help='critical threshold')
+    p_cfg.add_argument('--refresh', type=int, metavar='SEC', help="the panel's poll interval")
     p_cfg.add_argument('--json', action='store_true')
     p_cfg.set_defaults(func=cmd_config)
 
