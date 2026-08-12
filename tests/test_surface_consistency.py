@@ -106,7 +106,7 @@ class Y7Rounding(unittest.TestCase):
         # Built-in jq round() banker's rounding (round-half-to-even)
         result = subprocess.run(
             ['jq', '-n', f'({v}*10|round/10)'],
-            capture_output=True, text=True, timeout=2
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=2
         )
         if result.returncode == 0:
             return float(result.stdout.strip())
@@ -415,7 +415,8 @@ class StalenessReachesEverySurface(unittest.TestCase):
         try:
             env = dict(os.environ, USAGE_URL=f'http://127.0.0.1:{httpd.server_address[1]}')
             out = subprocess.run(['bash', str(self.REPO / 'surface' / 'waybar-usage.sh')],
-                                 capture_output=True, text=True, timeout=30, env=env)
+                                 capture_output=True, text=True, encoding='utf-8',
+                                 errors='replace', timeout=30, env=env)
         finally:
             httpd.shutdown()
             httpd.server_close()
@@ -488,7 +489,8 @@ console.log(JSON.stringify({stale, fresh}));
             path = Path(td) / 'flag.js'
             path.write_text(harness, encoding='utf-8')
             out = subprocess.run([node, str(path), str(self.REPO / 'web' / 'app.js')],
-                                 capture_output=True, text=True, timeout=30)
+                                 capture_output=True, text=True, encoding='utf-8',
+                             errors='replace', timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         result = json.loads(out.stdout)
         self.assertIn('bayat', result['stale']['text'])

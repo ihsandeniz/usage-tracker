@@ -140,7 +140,15 @@ def closed_port() -> int:
 
 
 def run_cli(args, env_extra=None, timeout=60, entry='module'):
-    """Run the CLI in a subprocess with a throwaway HOME. Returns CompletedProcess."""
+    """Run the CLI in a subprocess with a throwaway HOME. Returns CompletedProcess.
+
+    `encoding='utf-8'` is not decoration. `PYTHONIOENCODING` below tells the *child* to
+    write UTF-8; without this argument the *parent* decodes what comes back using the
+    locale code page, which on a Windows runner is cp1252 — and the very first byte of
+    `usage --format waybar` is `◐`. The reader thread died with UnicodeDecodeError,
+    `.stdout` came back as None, and the tests failed with a TypeError from json.loads
+    that says nothing about the real cause. Linux never saw it: the locale there is UTF-8.
+    """
     tmp = tempfile.mkdtemp(prefix='ut-cli-test-')
     env = dict(os.environ)
     env.update({
@@ -155,8 +163,8 @@ def run_cli(args, env_extra=None, timeout=60, entry='module'):
     env.update(env_extra or {})
     cmd = ([sys.executable, '-m', 'usage.cli'] if entry == 'module'
            else [sys.executable, str(ROOT / 'server.py')]) + list(args)
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(ROOT),
-                          env=env, timeout=timeout)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8',
+                          errors='replace', cwd=str(ROOT), env=env, timeout=timeout)
 
 
 # ── rounding parity ───────────────────────────────────────────────────────────

@@ -95,7 +95,8 @@ class SavedPanelStateIsValidated(unittest.TestCase):
     def run_cases(self, tabs, searches):
         payload = json.dumps({'tab': tabs, 'search': searches})
         out = subprocess.run([NODE, str(self.harness), str(APP_JS), payload],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, encoding='utf-8',
+                             errors='replace', timeout=30)
         self.assertEqual(out.returncode, 0, f'harness failed: {out.stderr.strip()}')
         return json.loads(out.stdout)
 
@@ -143,7 +144,8 @@ class ProviderFilter(unittest.TestCase):
     def filter(self, tab, query=''):
         out = subprocess.run(
             [NODE, str(self.harness), str(APP_JS), str(self.cards_path), tab, query],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, encoding='utf-8',
+                             errors='replace', timeout=30)
         self.assertEqual(out.returncode, 0,
                          f'harness failed: {out.stderr.strip()}')
         return json.loads(out.stdout)
@@ -187,7 +189,8 @@ class ProviderFilter(unittest.TestCase):
         path = Path(self._tmp.name) / 'with_partial.json'
         path.write_text(json.dumps(cards), encoding='utf-8')
         out = subprocess.run([NODE, str(self.harness), str(APP_JS), str(path), 'all', ''],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, encoding='utf-8',
+                             errors='replace', timeout=30)
         r = json.loads(out.stdout)
         self.assertIn('trunc', r['main'])
         self.assertNotIn('trunc', r['longtrail'])

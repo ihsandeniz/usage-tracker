@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# `shell: python` steps are written to a temporary file and run from there, so sys.path[0]
+# is that temp directory — not the checkout — and `import usage` fails with "No module
+# named 'usage'". Setting it once here is the fix; patching it step by step is how two of
+# the three steps got it and the third did not.
+env:
+  PYTHONPATH: ${{ github.workspace }}
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -45,10 +52,6 @@ jobs:
         shell: python
         run: |
           import importlib, pathlib, sys
-          # `shell: python` writes the script to a temp file and runs it, so sys.path[0] is
-          # that temp directory — not the checkout. Without this every import below fails
-          # with "No module named 'usage'" and the step measures the runner, not the code.
-          sys.path.insert(0, '.')
           bad = []
           for p in sorted(pathlib.Path('usage/providers').glob('*.py')):
               if p.stem == '__init__':
@@ -68,7 +71,6 @@ jobs:
         # that has no Claude, no Codex, no Ollama and no API keys — i.e. a CI runner.
         shell: python
         run: |
-          import sys; sys.path.insert(0, '.')      # see the note on the adapter-import step
           from usage.providers import collect
           cards = collect(30)
           print(f'{len(cards)} card(s) on a bare machine')
