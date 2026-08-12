@@ -120,7 +120,8 @@ usage-tracker guard --json
 
 ```json
 {"level":"warn","exitCode":1,"pct":80.0,"scope":"claude/session",
- "thresholds":{"warn":75,"crit":90},"source":"server","message":"claude/session at 80.0%"}
+ "thresholds":{"warn":75,"crit":90},"crossed":75,"stale":false,"ageSec":null,
+ "source":"server","message":"claude/session at 80.0%"}
 ```
 
 `--threshold N` collapses the two tiers into one boundary and returns 1 above it. It does
@@ -129,6 +130,35 @@ what an emergency is.
 
 Exit 3 deserves its own sentence: **unknown is not "fine"**. A missing percentage that
 exited 0 would silently green-light exactly the expensive job you wanted to hold back.
+
+### A threshold you cannot compare against is refused (64)
+
+`--threshold`, `--warn` and `--crit` take a finite number in `0 < n <= 100`. Anything else —
+`nan`, `inf`, `1e400` (which overflows to inf), `0`, `101` — exits **64**, the same answer
+`abc` always got.
+
+`nan` used to be accepted, and that was the dangerous case rather than a cosmetic one:
+IEEE-754 makes every comparison with NaN false, so `pct >= crit` and `pct >= warn` both
+answered "no" and the level fell through to `ok`. Measured at 99 % usage, `guard --threshold
+nan` exited **0**. A script written as `guard --threshold "$LIMIT" || skip` inherits that the
+day `$LIMIT` is computed wrong. Thresholds arriving from the wire get the same check: a
+non-comparable pair falls back to 75/90 instead of disabling the comparison.
+
+### A stale number is unknown, not good news (3)
+
+If the percentage came from the live endpoint and that reading is older than the freshness
+window (`limits.*.stale` in the wire), an otherwise-`ok` verdict becomes `unknown` → exit 3,
+and `stale` / `ageSec` appear in `--json` and in the message:
+
+```console
+$ usage-tracker guard --json
+{"level":"unknown","exitCode":3,"pct":5.0,"stale":true,"ageSec":604800.0,
+ "message":"claude/session at 5.0% — stale (7d0h old): the last live reading failed"}
+```
+
+A stale `warn`/`crit` keeps its level: both block the job, and only the specific one tells
+you which wall you are near. This closes a measured hole — a seven-day-old 5 % was reported
+as `ok`/0 with no mark on it at all, so the expensive job it was meant to hold back ran.
 
 ### Using it
 
@@ -202,7 +232,7 @@ not contact any provider API; `--probe` opts into that explicitly.
 
 ```bash
 usage-tracker config                       # cards, thresholds, refresh — and the file paths
-usage-tracker config --hide ollama
+usage-tracker config --hide ollama         # any card except claude — see below
 usage-tracker config --show ollama
 usage-tracker config --reset
 
@@ -222,6 +252,11 @@ $ usage-tracker guard ; echo $?
 crit: claude/weekly at 69.0% (over 20.0)
 2
 ```
+
+The Claude card is the one you cannot hide. `/v1/usage` guarantees `providers[0]` is that
+card and the waybar badge, the tray and `guard` all read it, so hiding it does not shrink a
+view — it switches the alerts off. The refusal exits 64 and writes nothing; a config file
+from an older build that already hides it is ignored rather than obeyed.
 
 Thresholds are validated in one place (`usage/settings.py`): `0 < warn < crit <= 100`.
 A rejected write leaves the previous pair untouched and exits 1 with the reason — silently

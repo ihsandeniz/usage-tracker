@@ -36,6 +36,13 @@ library API.
 
 `providers[0]` is always the Claude card. Everything after it is an adapter card.
 
+That sentence was a promise the code did not keep until 2026-08-13: `config --hide claude`
+and the panel's View checkbox both accepted hiding it, after which the default endpoint led
+with whichever adapter happened to be first, the waybar badge went blank and `guard` exited
+3. Claude is now a **protected card** — the writer refuses it (CLI exits 64, `POST
+/api/view-config` returns 400 with a reason) and the filter ignores it even if an older
+build already wrote it into `view_config.json`. Every other card can still be hidden.
+
 ## The Claude card
 
 ```jsonc
@@ -54,7 +61,11 @@ library API.
   },
   "limits": {
     "session":     { "pct": 62.5, "used": 1234.5, "units": 1234.5, "budget": 2000,
-                     "calibSuspect": false, "resetAtMs": 1770000000000, "resetInSec": 9000 },
+                     "calibSuspect": false, "resetAtMs": 1770000000000, "resetInSec": 9000,
+                     "forecast": { "willExceed": true, "etaMs": 1770000000000,
+                                   "etaText": "≈ 2s 10dk sonra dolar" },  // null when unknowable
+                     "live": true,             // this percentage came from the live endpoint
+                     "stale": false },         // ...and whether that reading is old
     "weekly":      { /* same shape */ },
     "weeklyModel": { /* same shape, plus "name" */ },
     "thresholds":  { "warn": 75, "crit": 90 }   // THE source of truth — see below
@@ -84,6 +95,31 @@ green "live" badge.
 
 No surface in this repo read `live.stale` before the change, and `live` itself was not in
 `/v1/usage` at all until then — so this is a new field in practice, not a silent break.
+
+### `limits.*.stale` and `limits.*.live` (added 2026-08-13)
+
+`live.stale` describes the *response*; these two describe the *number in this bar*. A bar is
+`live: true` when the live overlay wrote its percentage, and `stale: true` when the reading
+that produced it is older than the freshness window.
+
+The distinction exists because staleness has to survive the trip into a **decision**. It did
+not: a seven-day-old cached 5 % was overlaid onto the bars, `guard` read it and exited 0, and
+nothing in its output said the number was old — so `guard || skip_expensive_job` ran the job.
+Consumers must treat a stale percentage as unknown rather than as good news; `guard` now
+does exactly that (see docs/CLI.md).
+
+### `limits.*.forecast` (published from 2026-08-13)
+
+"At this rate, the window fills at …". `null` when the burn rate is too noisy to project
+(less than 5 % of the window elapsed, or under 2 % used), otherwise
+`{willExceed, etaMs, etaText}` with `willExceed: false` when the window resets first.
+
+The field was computed all along and then **dropped** by the wire assembler, so it existed
+only in demo mode. The panel, the waybar tooltip and the tray all read it, and none of them
+ever showed it to a real user. The golden schema is generated from the demo, which is why
+195 tests agreed the field was there — `tests/test_wire_contract.py` now compares production
+against the demo field by field, at every depth, so the demo can never again be the only
+place a field exists.
 
 ### `spend.catalog` — where the dollar figures came from
 
