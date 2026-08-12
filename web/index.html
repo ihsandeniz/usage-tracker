@@ -112,8 +112,11 @@
     </details>
 
     <!-- Arama sonucu yok mesajı -->
+    <!-- Kurtarma düğmesi bilinçli: kaydedilmiş bir arama, kullanıcının BU oturumda
+         yazmadığı hâlde ızgarayı boşaltabiliyor. Sebebi görünür, çıkışı tek tık. -->
     <div id="prov-no-match" class="muted" style="display:none; text-align:center; padding:20px;">
       <p data-i18n="provNoMatch">Eşleşme yok</p>
+      <button id="prov-clear-search" class="btn" data-i18n="provClearSearch">Aramayı temizle</button>
     </div>
 
     <p class="note" data-i18n="provNote">Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.</p>

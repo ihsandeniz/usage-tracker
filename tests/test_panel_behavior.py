@@ -46,6 +46,77 @@ console.log(JSON.stringify({
 '''
 
 
+# Second harness: what the panel does with whatever is sitting in localStorage.
+SANITIZE_HARNESS = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+// The tab list and the length cap are part of the answer, so they are lifted from the real
+// file too — a copy in this harness would be the fixture mistake this suite keeps avoiding.
+for (const c of ['PANEL_TABS', 'SEARCH_MAX']) {
+  const m = src.match(new RegExp('^const ' + c + ' = .*;$', 'm'));
+  if (!m) { console.error('MISSING_CONST:' + c); process.exit(2); }
+  eval(m[0].replace(/^const /, 'var '));
+}
+for (const n of ['sanitizeTab', 'sanitizeSearch']) {
+  const m = src.match(new RegExp('function ' + n + '\\([\\s\\S]*?\\n}', 'm'));
+  if (!m) { console.error('MISSING_FUNCTION:' + n); process.exit(2); }
+  eval(m[0]);
+}
+const cases = JSON.parse(process.argv[3]);
+console.log(JSON.stringify({
+  tab: cases.tab.map(v => sanitizeTab(v)),
+  search: cases.search.map(v => sanitizeSearch(v)),
+}));
+'''
+
+
+@unittest.skipUnless(NODE, 'node not installed — panel behaviour cannot be executed here')
+class SavedPanelStateIsValidated(unittest.TestCase):
+    """Measured 2026-08-12: filling the panel's localStorage keys with junk and reloading
+    produced no JS error and no crash — and no cards either. The saved tab matched no
+    button, the saved search was the literal string `{bozuk-json`, and the user was left
+    looking at "no configured provider" with no clue why. Recoverable by clicking a tab;
+    nobody knows that.
+
+    A stored value is untrusted input: it survives upgrades, it is editable by hand, and any
+    other page on 127.0.0.1 can write it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.harness = Path(cls._tmp.name) / 'sanitize.js'
+        cls.harness.write_text(SANITIZE_HARNESS, encoding='utf-8')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def run_cases(self, tabs, searches):
+        payload = json.dumps({'tab': tabs, 'search': searches})
+        out = subprocess.run([NODE, str(self.harness), str(APP_JS), payload],
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, f'harness failed: {out.stderr.strip()}')
+        return json.loads(out.stdout)
+
+    def test_an_unknown_tab_falls_back_to_all(self):
+        junk = ['{bozuk-json', '', 'API', 'undefined', None, 'all"><script>', '  ']
+        r = self.run_cases(junk, [])
+        self.assertEqual(r['tab'], ['all'] * len(junk),
+                         'a stored tab nobody can click was applied as-is')
+
+    def test_the_real_tabs_survive(self):
+        r = self.run_cases(['all', 'active', 'api', 'local'], [])
+        self.assertEqual(r['tab'], ['all', 'active', 'api', 'local'])
+
+    def test_a_search_string_is_bounded_and_never_null(self):
+        r = self.run_cases([], [None, 42, 'x' * 500, '  ollama  '])
+        self.assertEqual(r['search'][0], '')
+        self.assertEqual(r['search'][1], '')
+        self.assertLessEqual(len(r['search'][2]), 128)
+        self.assertEqual(r['search'][3], '  ollama  ', 'a legitimate query was altered')
+
+
 @unittest.skipUnless(NODE, 'node not installed — panel behaviour cannot be executed here')
 class ProviderFilter(unittest.TestCase):
 

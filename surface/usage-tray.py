@@ -158,6 +158,13 @@ def _summarize(data):
     fc = week.get('forecast') or {}
     if fc.get('willExceed') and fc.get('etaText'):
         lines.append('  <span color="%s">⚠ %s</span>' % (_COLORS['warn'], fc.get('etaText')))
+    # Bayat sayı işaretsiz gösterilmez: ağ kesildikten sonra son iyi yüzde donuyor ve
+    # ikonun rengi "her şey yolunda" demeye devam ediyordu (2026-08-12 ölçümü, guard'da).
+    lv = claude.get('live') or {}
+    if lv.get('stale'):
+        lines.append('  <span color="%s">⚠ bayat veri%s</span>'
+                     % (_COLORS['warn'],
+                        (' · %s önce' % _dur(lv.get('ageSec'))) if _dur(lv.get('ageSec')) else ''))
     spend = claude.get('spend') or {}
     curr = spend.get('currency', 'USD')
     headline = 'Claude · %d%%' % round(hi)

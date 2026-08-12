@@ -10,6 +10,7 @@ vermeli: eşik, yuvarlama, para birimi. İşlemsel testler + statik kod testi.
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -353,6 +354,147 @@ class Y3CurrencyIntegration(unittest.TestCase):
         # money() çağrılarında currency parametresi geçilmeli
         self.assertIn('money(.total.usd; (.currency // "USD"))', waybar_code,
             "waybar money() çağrısında currency parametresi olmalı")
+
+
+class StalenessReachesEverySurface(unittest.TestCase):
+    """Bir sayının yaşı, sayının kendisi kadar bilgidir.
+
+    2026-08-12 ölçümü `guard`'da yakaladı: 7 gün önce donmuş %5 "güvenle devam" diye
+    okunuyordu. Aynı sayı üç yüzeyde daha gösteriliyordu ve hiçbiri bayat olduğunu
+    söylemiyordu — panel onu "🟢 canlı · gerçek" diye etiketliyordu bile. `live.py`
+    bayat değeri göstermeyi bilinçli seçti; işaret ekrana çıkmazsa o seçim yalana döner.
+
+    Grep değil çalıştırma: jq programı gerçekten koşuyor, tray'in özetleyicisi gerçekten
+    çağrılıyor, panelin rozet fonksiyonu Node'da gerçekten değerlendiriliyor.
+    """
+
+    REPO = Path(__file__).resolve().parent.parent
+
+    @staticmethod
+    def _wire(stale=True, age=604800.0):
+        def bar(pct):
+            return {'pct': pct, 'used': 10, 'units': 10, 'budget': 100, 'calibSuspect': None,
+                    'resetAtMs': None, 'resetInSec': 3600,
+                    'forecast': {'willExceed': False, 'etaMs': None, 'etaText': None},
+                    'live': True, 'stale': stale}
+        return {
+            'schema': 'usage/v1', 'generatedAtMs': 1770000000000, 'source': 'live',
+            'thresholds': {'warn': 75, 'crit': 90},
+            'providers': [{
+                'id': 'claude', 'name': 'Claude Code', 'calibrated': True,
+                'live': {'ok': True, 'error': None, 'cached': True, 'fetchedAtMs': 1,
+                         'ageSec': age, 'stale': stale, 'rateLimited': False,
+                         'rateLimitTier': None},
+                'limits': {'session': bar(5.0), 'weekly': bar(5.0), 'weeklyModel': None,
+                           'thresholds': {'warn': 75, 'crit': 90}},
+                'spend': {'currency': 'USD', 'today': 1.0, 'yesterday': 1.0, 'last30d': 1.0,
+                          'byModel': [], 'priceComplete': True, 'estimatedModels': [],
+                          'unknownPriceModels': [], 'catalog': None},
+            }],
+        }
+
+    # ── waybar: the real jq program, served over real HTTP ────────────────────
+    def _run_waybar(self, wire):
+        if not shutil.which('jq'):
+            self.skipTest('jq not installed')
+        payload = json.dumps(wire).encode('utf-8')
+
+        class H(SimpleHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        httpd = HTTPServer(('127.0.0.1', 0), H)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            env = dict(os.environ, USAGE_URL=f'http://127.0.0.1:{httpd.server_address[1]}')
+            out = subprocess.run(['bash', str(self.REPO / 'surface' / 'waybar-usage.sh')],
+                                 capture_output=True, text=True, timeout=30, env=env)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return json.loads(out.stdout)
+
+    def test_the_waybar_tooltip_says_the_number_is_old(self):
+        badge = self._run_waybar(self._wire(stale=True))
+        self.assertIn('bayat', badge['tooltip'])
+        self.assertTrue(badge['text'].strip(), 'the badge went empty — jq empty-stream regression')
+
+    def test_a_fresh_badge_carries_no_warning(self):
+        badge = self._run_waybar(self._wire(stale=False, age=12.0))
+        self.assertNotIn('bayat', badge['tooltip'])
+
+    # ── tray: the real summariser ─────────────────────────────────────────────
+    def _tray(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'usage_tray', self.REPO / 'surface' / 'usage-tray.py')
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except SystemExit:                      # Qt yoksa modül kendini kapatır
+            self.skipTest('tray module needs a Qt binding')
+        return module
+
+    def test_the_tray_tooltip_says_the_number_is_old(self):
+        tray = self._tray()
+        _cls, _pct, tooltip, _headline = tray._summarize(self._wire(stale=True))
+        self.assertIn('bayat', tooltip)
+        _cls, _pct, fresh, _headline = tray._summarize(self._wire(stale=False, age=12.0))
+        self.assertNotIn('bayat', fresh)
+
+    def test_an_empty_grid_has_a_way_out(self):
+        """Ölçüldü (2026-08-13, headless): bozuk `ut.panel.search.v1` ızgarayı boşaltıyor.
+        Sekme artık kurtarılıyor ama aramayı silmek KULLANICININ kararı — sessizce atmak,
+        gerçekten yazdığı sorguyu yok saymak olurdu. Bunun yerine sebep görünür ve çıkış
+        tek tık: "Eşleşme yok" bloğunda temizleme düğmesi. Ölçüm: 0 kart → tık → 8 kart.
+
+        Bu test yapısal — bir DOM olayı saf fonksiyon değil, düğümler olmadan
+        çalıştırılamaz. Davranışın kendisi headless bir tarayıcıda ölçüldü; burada
+        sabitlenen, kurtarma yolunun **var olduğu** ve doğru anahtarı temizlediği.
+        """
+        html = (self.REPO / 'web' / 'index.html').read_text(encoding='utf-8')
+        app = (self.REPO / 'web' / 'app.js').read_text(encoding='utf-8')
+        self.assertIn('id="prov-clear-search"', html, 'boş ekranda kurtarma düğmesi yok')
+        self.assertIn("$('prov-clear-search')", app, 'düğme hiçbir yere bağlanmamış')
+        self.assertIn("localStorage.setItem('ut.panel.search.v1', '')", app,
+                      'düğme kaydedilmiş aramayı temizlemiyor — yeniden yüklemede geri gelir')
+
+    # ── panel: the real badge function, executed ──────────────────────────────
+    def test_the_panel_does_not_call_a_week_old_number_live(self):
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('node not installed')
+        harness = '''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+for (const n of ['fmtAge', 'liveFlag']) {
+  const m = src.match(new RegExp('function ' + n + '\\\\([\\\\s\\\\S]*?\\\\n}', 'm'));
+  if (!m) { console.error('MISSING_FUNCTION:' + n); process.exit(2); }
+  eval(m[0]);
+}
+const stale = liveFlag({source: 'live', live: {ok: true, stale: true, ageSec: 604800}});
+const fresh = liveFlag({source: 'live', live: {ok: true, stale: false, ageSec: 12}});
+console.log(JSON.stringify({stale, fresh}));
+'''
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'flag.js'
+            path.write_text(harness, encoding='utf-8')
+            out = subprocess.run([node, str(path), str(self.REPO / 'web' / 'app.js')],
+                                 capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        result = json.loads(out.stdout)
+        self.assertIn('bayat', result['stale']['text'])
+        self.assertIn('7g', result['stale']['text'], 'the badge does not say how old')
+        self.assertEqual(result['stale']['cls'], 'pill warn')
+        self.assertEqual(result['fresh']['text'], '🟢 canlı · gerçek')
 
 
 if __name__ == '__main__':

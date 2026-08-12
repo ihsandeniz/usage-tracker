@@ -95,6 +95,11 @@ echo "$json" | jq -c '
       + (if ($claude.limits.weekly.forecast.willExceed // false) and (($claude.limits.weekly.forecast.etaText // "") != "") then
           "\n  <span color=\"#ffa500\">⚠ " + $claude.limits.weekly.forecast.etaText + "</span>"
         else "" end)
+      # Bayat veri işaretsiz gösterilmez. Ağ kesilince son iyi yüzde donuyor; rozet aynı
+      # rengi göstermeye devam ettiği için kullanıcı taze bir sayıya baktığını sanıyordu.
+      + (if ($claude.live.stale // false) then
+          "\n  <span color=\"#ffa500\">⚠ bayat veri" + (if ($claude.live.ageSec // 0) > 0 then " · " + dur($claude.live.ageSec) + " önce" else "" end) + "</span>"
+        else "" end)
       + "\n  <span color=\"#8fb6d6\">💰</span> today " + money($claude.spend.today; ($claude.spend.currency // "USD"))
         + (if ($claude.spend.yesterday // 0) > 0 then " · yester " + money($claude.spend.yesterday; ($claude.spend.currency // "USD")) else "" end)
         + " · 30d " + money($claude.spend.last30d; ($claude.spend.currency // "USD"))

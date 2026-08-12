@@ -22,9 +22,11 @@ const I18N = {
     pageTitle: 'usage-tracker · Claude usage & spending',
     provNote: 'An unconfigured provider opens no card. OpenRouter=real $ · Codex=subscription (API-equivalent $) · Ollama=local/free.',
     viewNote: 'Show the checked providers; unchecked ones are hidden from the panel/waybar/widget.',
+    viewLocked: 'The Claude card cannot be hidden — the waybar badge, the tray and `guard` all read it.',
     footerSrc: 'source: ~/.claude/projects + ~/.codex + OpenRouter API (read-only)',
     provSearchPlaceholder: 'Search provider name...', provTabAll: 'All', provTabActive: 'Active',
     provTabApi: 'API key', provTabLocal: 'On disk', provNoMatch: 'No matches',
+    provClearSearch: 'Clear the search',
     settings: 'Settings', setWarn: 'Warn threshold %', setCrit: 'Critical threshold %',
     setRefresh: 'Refresh (s)', setCurrency: 'Display currency', setSave: 'Save',
     setKeys: 'API keys', setSaved: '✓ saved', setSaving: 'saving…',
@@ -53,9 +55,11 @@ const I18N = {
     pageTitle: 'usage-tracker · Claude kullanım & harcama',
     provNote: 'Yapılandırılmamış sağlayıcı kart açmaz. OpenRouter=gerçek $ · Codex=abonelik (API-eşdeğeri $) · Ollama=yerel/ücretsiz.',
     viewNote: 'İşaretli sağlayıcıları göster; işaretsiz olanlar panel/waybar/widget\'tan gizlenir.',
+    viewLocked: 'Claude kartı gizlenemez — waybar rozeti, tepsi ikonu ve `guard` bu kartı okuyor.',
     footerSrc: 'kaynak: ~/.claude/projects + ~/.codex + OpenRouter API (salt-okunur)',
     provSearchPlaceholder: 'Sağlayıcı adı ara...', provTabAll: 'Hepsi', provTabActive: 'Aktif',
     provTabApi: 'API anahtarı', provTabLocal: 'Diskten', provNoMatch: 'Eşleşme yok',
+    provClearSearch: 'Aramayı temizle',
     settings: 'Ayarlar', setWarn: 'Uyarı eşiği %', setCrit: 'Kritik eşik %',
     setRefresh: 'Yenileme (sn)', setCurrency: 'Görüntüleme para birimi', setSave: 'Kaydet',
     setKeys: 'API anahtarları', setSaved: '✓ kaydedildi', setSaving: 'kaydediliyor…',
@@ -205,11 +209,35 @@ function renderLimits(u) {
 
   // kaynak rozeti: canlı gerçek (Anthropic) > tahmini (kalibrasyon/ağırlık)
   const flag = $('calib-flag');
-  const lv = u.live || {};
-  if (u.source === 'live') { flag.textContent = '🟢 canlı · gerçek'; flag.className = 'pill good'; }
-  else if (lv.rateLimited) { flag.textContent = '⏳ canlı limit (429) → tahmine düşüldü'; flag.className = 'pill warn'; }
-  else if (lv.error) { flag.textContent = '≈ tahmini (canlı: ' + lv.error + ')'; flag.className = 'pill warn'; }
-  else { flag.textContent = '≈ tahmini'; flag.className = 'pill warn'; }
+  const badge = liveFlag(u);
+  flag.textContent = badge.text;
+  flag.className = badge.cls;
+}
+
+// Yaşı okunabilir yap — rozet "ne kadar eski" sorusunu cevaplamalı, yoksa uyarı değil süs.
+function fmtAge(sec) {
+  if (typeof sec !== 'number' || !isFinite(sec) || sec <= 0) return '';
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d) return d + 'g' + h + 's';
+  if (h) return h + 's' + m + 'dk';
+  return m + 'dk';
+}
+
+// Kaynak rozeti saf fonksiyon: ekrandaki tek cümle, ölçülebilir olsun diye ayrıldı.
+// 🔴 Buradaki kusur: `source === 'live'` bayatlığı hiç sormuyordu, yani ağ kesildikten
+// yedi gün sonra bile panel "🟢 canlı · gerçek" yazıyordu. `live.py` sayıyı 'stale'
+// işaretiyle göstermeyi bilinçli seçti — ama işaret ekrana çıkmazsa seçim yalana dönüşür.
+function liveFlag(u) {
+  const lv = (u && u.live) || {};
+  if (lv.stale) {
+    const age = fmtAge(lv.ageSec);
+    return { text: '⚠ bayat · son canlı okuma' + (age ? ' ' + age + ' önce' : ' başarısız'),
+             cls: 'pill warn' };
+  }
+  if (u && u.source === 'live') return { text: '🟢 canlı · gerçek', cls: 'pill good' };
+  if (lv.rateLimited) return { text: '⏳ canlı limit (429) → tahmine düşüldü', cls: 'pill warn' };
+  if (lv.error) return { text: '≈ tahmini (canlı: ' + lv.error + ')', cls: 'pill warn' };
+  return { text: '≈ tahmini', cls: 'pill warn' };
 }
 
 function esc(s) { return String(s ?? '').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
@@ -639,13 +667,20 @@ async function loadViewConfig() {
   }
 }
 
+// Gizlenemeyen kartlar. Sunucu da reddediyor (usage/viewconfig.PROTECTED_PROVIDERS);
+// buradaki kilit, kullanıcının reddedilecek bir kutuya tıklamasını en baştan önlüyor.
+const LOCKED_PROVIDERS = ['claude'];
+
 function renderViewProviders(available, hidden) {
   const list = available.map(prov => {
-    const isHidden = hidden.includes(prov.id);
+    const locked = LOCKED_PROVIDERS.includes(prov.id);
+    const isHidden = !locked && hidden.includes(prov.id);
     const checked = !isHidden ? 'checked' : '';
-    return `<label class="view-checkbox">
-      <input type="checkbox" data-provider="${esc(prov.id)}" ${checked}>
-      <span>${esc(prov.name)}</span>
+    // Kilitli kart, gizlenebilir bir tercihmiş gibi sunulmamalı: onay kutusu ekranda
+    // duruyordu ve tıklayan kullanıcı waybar rozetiyle `guard`'ı da kapatıyordu.
+    return `<label class="view-checkbox"${locked ? ` title="${esc(t('viewLocked'))}"` : ''}>
+      <input type="checkbox" data-provider="${esc(prov.id)}" ${checked}${locked ? ' disabled' : ''}>
+      <span>${esc(prov.name)}${locked ? ' 🔒' : ''}</span>
     </label>`;
   }).join('');
   $('view-providers').innerHTML = list || '<div class="muted">Sağlayıcı yok</div>';
@@ -695,9 +730,25 @@ async function submitViewConfig() {
 // ── FAZ 3 §3: Sekme ve arama event listener'ları ──────────────────────────────
 let currentProviders = [];  // Global state: mevcut sağlayıcı listesi
 
+// Kaydedilmiş panel durumu GÜVENİLMEZ girdidir: sürüm yükseltmelerinden sağ çıkar, elle
+// düzenlenebilir ve 127.0.0.1'deki başka bir sayfa da yazabilir. Bozuk bir değer paneli
+// çökertmiyordu ama daha kötüsünü yapıyordu — sessizce boş bir ızgara gösteriyordu:
+// hiçbir düğmeye uymayan sekme + "{bozuk-json" arama kutusu → "Eşleşme yok" (2026-08-12).
+const PANEL_TABS = ['all', 'active', 'api', 'local'];
+const SEARCH_MAX = 128;
+
+function sanitizeTab(value) {
+  return PANEL_TABS.includes(value) ? value : 'all';
+}
+
+function sanitizeSearch(value) {
+  if (typeof value !== 'string') return '';
+  return value.slice(0, SEARCH_MAX);
+}
+
 function updateProviderDisplay() {
-  const savedTab = localStorage.getItem('ut.panel.tab.v1') || 'all';
-  const savedSearch = localStorage.getItem('ut.panel.search.v1') || '';
+  const savedTab = sanitizeTab(localStorage.getItem('ut.panel.tab.v1'));
+  const savedSearch = sanitizeSearch(localStorage.getItem('ut.panel.search.v1'));
 
   // Sekmeleri aktifleştir
   document.querySelectorAll('.prov-tab').forEach(btn => {
@@ -753,6 +804,18 @@ if (searchInput) {
   searchInput.addEventListener('input', (e) => {
     const query = e.target.value;
     localStorage.setItem('ut.panel.search.v1', query);
+    updateProviderDisplay();
+  });
+}
+
+// Boş ekrandan tek tıkla çıkış. Önceki oturumdan kalan (ya da bozulmuş) bir arama,
+// kullanıcı o an hiçbir şey yazmamışken ızgarayı boşaltabiliyordu; "Eşleşme yok"
+// yazısı sebebi söylüyor ama çıkışı göstermiyordu.
+const clearSearchBtn = $('prov-clear-search');
+if (clearSearchBtn) {
+  clearSearchBtn.addEventListener('click', () => {
+    localStorage.setItem('ut.panel.search.v1', '');
+    if (searchInput) searchInput.value = '';
     updateProviderDisplay();
   });
 }
