@@ -509,6 +509,34 @@ class TheEntryPointSurvivesALegacyCodePage(unittest.TestCase):
             _sys.stdout = original
         self.assertIn('İlk', i18n.t('first_run', 'tr'), 'the message under test lost its İ')
 
+    def test_the_greeting_is_visible_before_the_process_ends(self):
+        """Bu satırların tek işi görünmek; tamponda bekleyen bir yönerge yönerge değildir.
+
+        stdout bir dosyaya/boruya bağlıyken Python blok tamponlar. Windows koşucusunda
+        ölçüldü: sihirbaz açıldı, panel devraldı, ama pencerenin ne dediği log'a hiç düşmedi
+        — süreç öldürüldüğünde tampon da gitti.
+        """
+        import io
+        import sys as _sys
+        sys.path.insert(0, str(REPO))
+        import server as server_mod
+        from usage import wizard
+
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding='utf-8', write_through=False)
+        original = _sys.stdout
+        _sys.stdout = stream
+        try:
+            with mock.patch.object(wizard, 'is_windows', return_value=True), \
+                 mock.patch.object(wizard, 'is_first_run', return_value=False), \
+                 mock.patch.dict(os.environ, {'UT_NO_BROWSER': '1'}):
+                server_mod._greet_and_open(no_open=False)
+            written = raw.getvalue()          # flush YOK: tamponda kalan ne varsa o
+        finally:
+            _sys.stdout = original
+        self.assertIn(b'127.0.0.1', written,
+                      'the greeting sat in the buffer — a user with redirected output sees nothing')
+
     def test_a_mistyped_command_still_explains_itself(self):
         """The dispatcher's message is separated with `·` — cp1252 has it, but the reply
         travels through the same stream, so it is measured rather than assumed."""

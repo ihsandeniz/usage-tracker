@@ -348,7 +348,7 @@ def main(argv=None):
         return 0
 
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f'usage-tracker {VERSION} → http://{HOST}:{PORT}')
+    _say_now(f'usage-tracker {VERSION} → http://{HOST}:{PORT}')
 
     # Fiyat kataloğu eksik/bayatsa başlangıçta söyle — panelde görünmesini beklemeden.
     try:
@@ -370,6 +370,17 @@ def main(argv=None):
         print('\n' + ' · '.join(i18n.both('stopped')))
         srv.shutdown()
     return 0
+
+
+def _say_now(text: str = '') -> None:
+    """Kullanıcıya *ne yapacağını* söyleyen satırlar tamponda bekleyemez.
+
+    Aynı kusur bu turda iki kez çıktı: sihirbazın adresi ve şimdi karşılama satırları.
+    stdout bir dosyaya/boruya bağlıyken Python blok tamponlar; süreç kapanana kadar hiçbir
+    şey görünmez — ve bu satırların tek işi görünmek. Windows koşucusunda ölçüldü: sihirbaz
+    açıldı, panel devraldı, ama pencerenin ne dediğini kimse okuyamadı.
+    """
+    print(text, flush=True)
 
 
 def _greet_and_open(no_open: bool) -> None:
@@ -410,22 +421,22 @@ def _greet_and_open(no_open: bool) -> None:
     url = f'http://{HOST}:{PORT}'
     if wizard.is_first_run():
         for line in i18n.both('first_run'):
-            print(f'  {line}')
+            _say_now(f'  {line}')
         from usage import wizard_server
         wizard_server.serve()                      # kullanıcı "Bitir" diyene kadar bloklar
         for line in i18n.both('wizard_done'):
-            print(f'  {line}')
+            _say_now(f'  {line}')
 
     for line in i18n.both('panel_running', url=url):
-        print(f'  {line}')
+        _say_now(f'  {line}')
     for line in i18n.both('panel_opening'):
-        print(f'  {line}')
-    print()
+        _say_now(f'  {line}')
+    _say_now()
     for line in i18n.both('keep_open'):
-        print(f'  {line}')
+        _say_now(f'  {line}')
     if not wizard.is_first_run():
         for line in i18n.both('hide_window'):
-            print(f'  {line}')
+            _say_now(f'  {line}')
 
     if os.environ.get('UT_NO_BROWSER') == '1':     # başsız makine, CI, test
         return
