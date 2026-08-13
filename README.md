@@ -33,19 +33,11 @@ cd usage-tracker
 Rather click than type? `./setup.sh --ui` runs the same six steps in a browser window —
 each one showing a real diff of what it is about to write, with an Undo button next to it.
 
-**On Windows?** Download the `.exe` from [Releases](https://github.com/ihsandeniz/usage-tracker/releases)
-and run its own wizard — the same four steps, one of them in a browser if you prefer:
-
-```powershell
-.\usage-tracker.exe setup          # terminal
-.\usage-tracker.exe setup --ui     # browser
-.\usage-tracker.exe setup --auto   # no questions
-```
-
-It installs into your user folder, starts at logon with no console window, adds a Start-menu
-shortcut, and undoes all of it with `setup --uninstall`. What you do *not* get on Windows
-(waybar, the tray, the floating widget) and which claims have been measured on a real
-machine: [`docs/WINDOWS.md`](docs/WINDOWS.md).
+**On Windows?** Download the `.exe` from
+[Releases](https://github.com/ihsandeniz/usage-tracker/releases/latest) and **double-click
+it** — the setup wizard opens in your browser by itself, in English or Turkish. No commands,
+no separate installer. Step by step, including what SmartScreen will say:
+[`docs/WINDOWS.md`](docs/WINDOWS.md) · [Türkçe](docs/WINDOWS.tr.md)
 
 ![the setup wizard showing the exact diff it will write to your waybar config](docs/setup-wizard.png)
 

@@ -175,6 +175,64 @@ jobs:
           Write-Host 'a foreign file survived undo'
           exit 0
 
+      - name: A double-click on a fresh machine opens the wizard, then the panel
+        # 🔴 Bu adım bir saha kusurundan doğdu: kullanıcı `.exe`'yi gerçek bir Windows
+        # makinesinde çift tıkladı, siyah pencere açıldı ve orada kaldı — sunucu ayaktaydı
+        # ama tarayıcı açılmıyordu ve sihirbaza ulaşmak için komut yazması gerektiğini
+        # bilmesinin yolu yoktu. Ölçülen zincir: taze makine → sihirbaz kendiliğinden
+        # açılıyor → "Bitir" → panel servis ediyor.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $fresh = Join-Path $env:RUNNER_TEMP 'ut-fresh'
+          $env:APPDATA = Join-Path $fresh 'Roaming'
+          $env:LOCALAPPDATA = Join-Path $fresh 'Local'
+          $env:UT_NO_BROWSER = '1'      # koşucuda pencere açma; akış aynı akış
+          $env:USAGE_PORT = '8781'
+          New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
+
+          $log = Join-Path $fresh 'out.txt'
+          $proc = Start-Process -FilePath dist\usage-tracker.exe -PassThru -NoNewWindow `
+                                -RedirectStandardOutput $log
+          $url = $null
+          foreach ($i in 1..40) {
+            Start-Sleep -Milliseconds 500
+            if (Test-Path $log) {
+              $match = Select-String -Path $log -Pattern 'http://127\.0\.0\.1:\d+/wizard\.html#\S+'
+              if ($match) { $url = $match.Matches[0].Value; break }
+            }
+          }
+          if (-not $url) {
+            Get-Content $log -ErrorAction SilentlyContinue | Write-Host
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            throw 'a first run did not open the setup wizard — the user would be stuck at a black window'
+          }
+          Write-Host "wizard came up on its own: $($url -replace '#.*', '#<token>')"
+
+          $parts = $url -split '#'
+          $base = $parts[0] -replace 'wizard\.html$', ''
+          $headers = @{ 'X-UT-Token' = $parts[1]; 'Content-Type' = 'application/json' }
+          Invoke-RestMethod -Uri "$($base)api/wizard/quit" -Method Post -Body '{}' -Headers $headers | Out-Null
+
+          # Sihirbaz kapanınca panel devralmalı — kullanıcı "Bitir"e basınca boş ekran değil.
+          $panel = $null
+          foreach ($i in 1..40) {
+            Start-Sleep -Milliseconds 500
+            try { $panel = Invoke-WebRequest 'http://127.0.0.1:8781/' -UseBasicParsing; break } catch { }
+          }
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+          if ($null -eq $panel -or $panel.StatusCode -ne 200) { throw 'the panel never took over after the wizard' }
+          Write-Host 'panel took over after Finish'
+
+          # Pencere kullanıcıya iki dilde ne olduğunu söylüyor mu.
+          $text = Get-Content $log -Raw
+          if ($text -notmatch 'The panel is running') { throw 'the window never said what happened (en)' }
+          if ($text -notmatch 'Panel çalışıyor')      { throw 'the window never said what happened (tr)' }
+          Write-Host 'the window explained itself in both languages'
+          exit 0
+
       - name: Where does it write on Windows
         # W0'ın kodla bulunabilen yarısı. Diğer yarısı (Claude/Codex Windows'ta verisini
         # nereye yazıyor) bir keşiftir ve gerçek makine ister.

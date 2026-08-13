@@ -869,6 +869,7 @@ def _setup_keys_interactive(wizard) -> None:
 
 
 def cmd_setup(args) -> int:
+    from . import i18n
     from . import wizard
 
     machine = args.probe or args.preview or args.do or args.undo
@@ -910,6 +911,8 @@ def cmd_setup(args) -> int:
     state = wizard.probe()
     print(f'usage-tracker {version()} · setup   ({state["platform"]}'
           f'{", single-file build" if state["frozen"] else ", source checkout"})')
+    for line in i18n.both('setup_intro'):
+        print(f'  {line}')
     if state['setupSh']:
         print('  Note: on Linux ./setup.sh does more than this wizard — waybar, the floating\n'
               '  widget and the tray. This one covers what a single binary can do.')
@@ -918,26 +921,27 @@ def cmd_setup(args) -> int:
         print('\n  Applying the recommended steps.\n')
         result = wizard.auto()
         for step in result['results']:
-            print(f"  {wizard.STEP_TITLES[step['step']]}")
+            print(f"  {i18n.t('step_' + step['step'])}")
             _say(step.get('messages'))
         if result['failed']:
             print(f"\n  ✗ These steps did not succeed: {', '.join(result['failed'])}")
         return 0 if result['ok'] else 1
 
     for step in wizard.AUTO_STEPS:
-        print(f'\n  {wizard.STEP_TITLES[step]}')
+        titles = i18n.both(f'step_{step}')
+        print(f'\n  {titles[0]}' + (f'   ({titles[1]})' if titles[1] != titles[0] else ''))
         for line in wizard.preview(step).get('lines', []):
             print(f'    │ {line}' if line else '    │')
-        if step == 'verify' or _ask('  Apply this step?', True):
+        if step == 'verify' or _ask(i18n.t('setup_apply'), True):
             _say(wizard.do(step).get('messages'))
         else:
-            print('  · skipped')
+            print(i18n.t('setup_skipped'))
 
-    if _ask('\n  Add provider API keys now? (optional)', False):
+    if _ask(i18n.t('setup_keys_q'), False):
         _setup_keys_interactive(wizard)
 
-    print(f'\n  Done. The panel lives at {wizard.PANEL_URL} — `usage-tracker panel` opens it.')
-    print('  Changed your mind? `usage-tracker setup --uninstall` puts it all back.')
+    print(i18n.t('setup_done', url=wizard.PANEL_URL))
+    print(i18n.t('setup_undo_hint'))
     return 0
 
 

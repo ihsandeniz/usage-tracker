@@ -22,7 +22,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import engine, settings, viewconfig   # noqa: E402
 
-VERSION = '0.3.0'                                  # tek kaynak: Server başlığı + panel rozeti
+VERSION = '0.4.0'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
 from usage import platform as _paths          # noqa: E402
@@ -321,6 +321,9 @@ def main(argv=None):
     # 0 ile çıkıyordu — `… || atla` yazan script atlamıyor, asılıyordu. Alt komut
     # ayrıştırıcısı 64 döndürüyordu ama donmuş pakette **yalnız bu dağıtıcı** erişilebilir.
     # Kural: argüman varsa ya bilinen bir komuttur ya bilinen bir bayrak; üçüncü şık yok.
+    no_open = '--no-open' in argv
+    argv = [a for a in argv if a != '--no-open']
+
     if argv and argv[0] not in ('--version', '-V', '--help', '-h'):
         from usage.cli import EXIT_USAGE
         hint = (f"unknown command '{argv[0]}'" if not argv[0].startswith('-')
@@ -334,7 +337,9 @@ def main(argv=None):
         print(f'usage-tracker {VERSION} — AI kullanım/limit/harcama izleyici\n'
               f'\n'
               f'  python3 server.py            panel sunucusu (http://{HOST}:{PORT})\n'
-              f'  python3 server.py --version  sürüm\n'
+              f'  python3 server.py --no-open   tarayıcı açma (oturum açılışı için)\n'
+              f'  python3 server.py setup       kurulum sihirbazı (--ui ile tarayıcıda)\n'
+              f'  python3 server.py --version   sürüm\n'
               f'\n'
               f'Ortam:\n'
               f'  USAGE_PORT   port (varsayılan 8770)\n'
@@ -343,7 +348,7 @@ def main(argv=None):
         return 0
 
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f'usage-tracker {VERSION} → http://{HOST}:{PORT}  (Ctrl+C ile durdur)')
+    print(f'usage-tracker {VERSION} → http://{HOST}:{PORT}')
 
     # Fiyat kataloğu eksik/bayatsa başlangıçta söyle — panelde görünmesini beklemeden.
     try:
@@ -354,12 +359,73 @@ def main(argv=None):
     except Exception:                      # katalog uyarısı hiçbir zaman sunucuyu düşürmesin
         pass
 
+    import threading
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    _greet_and_open(no_open)
+
     try:
-        srv.serve_forever()
+        threading.Event().wait()          # Ctrl+C'yi bekleyen tek yer burası
     except KeyboardInterrupt:
-        print('\ndurduruldu.')
+        from usage import i18n
+        print('\n' + ' · '.join(i18n.both('stopped')))
         srv.shutdown()
     return 0
+
+
+def _greet_and_open(no_open: bool) -> None:
+    """Çift tıklayan kullanıcının gördüğü her şey.
+
+    🔴 Bu fonksiyon bir kusurdan doğdu: ihsan `.exe`'yi **gerçek bir Windows makinesinde**
+    çift tıkladı, siyah bir pencere açıldı ve orada kaldı — sunucu çalışıyordu ama tarayıcı
+    açılmıyordu ve sihirbaza ulaşmak için `usage-tracker setup` yazması gerektiğini
+    bilmesinin hiçbir yolu yoktu. `docs/WINDOWS.md` bile "çift tıkla, panel açılır" diyordu;
+    açılmıyordu. Bir kurulum, kullanıcıdan komut yazmasını istediği anda kurulum olmaktan
+    çıkar.
+
+    Şimdi: ilk çalıştırmada **sihirbaz** tarayıcıda açılır (kullanıcı bitirince panel gelir),
+    sonrakilerde doğrudan panel. Pencere iki dilde ne olduğunu söyler — makinenin dilini
+    yanlış tahmin etmenin bedeli, iki satır fazladan metinden büyüktür.
+
+    `--no-open`: oturum açılışındaki gizli başlatıcı ve systemd bunu geçer — her açılışta
+    tarayıcı açan bir servis, kullanıcının kapatmak isteyeceği bir servistir.
+    """
+    from usage import i18n
+    from usage import wizard
+
+    # Yalnız Windows. Linux'ta bu ikili çoğunlukla systemd altında, konteynerde ya da SSH
+    # oturumunda koşuyor; oralarda tarayıcı açmak (ya da sihirbazı bloklamak) yardım değil
+    # sürpriz olur. Linux'un kendi yolu `./setup.sh` ve o yol bozulmadı.
+    if no_open or not wizard.is_windows():
+        return
+
+    import webbrowser
+
+    url = f'http://{HOST}:{PORT}'
+    if wizard.is_first_run():
+        for line in i18n.both('first_run'):
+            print(f'  {line}')
+        from usage import wizard_server
+        wizard_server.serve()                      # kullanıcı "Bitir" diyene kadar bloklar
+        for line in i18n.both('wizard_done'):
+            print(f'  {line}')
+
+    for line in i18n.both('panel_running', url=url):
+        print(f'  {line}')
+    for line in i18n.both('panel_opening'):
+        print(f'  {line}')
+    print()
+    for line in i18n.both('keep_open'):
+        print(f'  {line}')
+    if not wizard.is_first_run():
+        for line in i18n.both('hide_window'):
+            print(f'  {line}')
+
+    if os.environ.get('UT_NO_BROWSER') == '1':     # başsız makine, CI, test
+        return
+    try:
+        webbrowser.open(url)
+    except Exception:                              # tarayıcı yoksa: adres zaten yazıldı
+        pass
 
 
 if __name__ == '__main__':

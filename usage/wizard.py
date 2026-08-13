@@ -98,6 +98,19 @@ def running_from_install() -> bool:
         return False
 
 
+def is_first_run() -> bool:
+    """Bu makinede kurulum hiç yapılmamış mı?
+
+    Ayrı bir "kuruldu" damgası tutulmuyor: kurulumun kendisi zaten iki iz bırakıyor
+    (kalıcı yere kopya + oturum açılışı kaydı). Üçüncü bir durum dosyası, o dosya ile
+    gerçeklik arasında sessizce ayrışabilecek bir yer daha demek olurdu.
+    """
+    try:
+        return not is_installed() and not _autostart_path().exists()
+    except OSError:
+        return False
+
+
 def server_alive(timeout: float = 1.5) -> bool:
     try:
         with urllib.request.urlopen(f'{PANEL_URL}/v1/usage', timeout=timeout) as r:
@@ -222,7 +235,10 @@ def _win_autostart_body() -> str:
     kullanıcı onu kapatınca sunucu ölür. `WScript.Shell.Run(..., 0, False)` pencereyi hiç
     göstermez. Alternatifi ikiliyi penceresiz derlemekti — o da CLI'ı kullanılamaz yapardı."""
     exe = installed_binary() if is_installed() else binary_path()
-    cmd = f'""{exe}""' if _paths.is_frozen() else f'""{sys.executable}"" ""{exe}""'
+    base = f'""{exe}""' if _paths.is_frozen() else f'""{sys.executable}"" ""{exe}""'
+    # `--no-open`: bu, oturum açılışında sessizce koşan kopya. Tarayıcı açmak kullanıcının
+    # her açılışta kapatacağı bir pencere demekti.
+    cmd = f'{base} --no-open'
     return (f"' {STAMP}\r\n"
             "' Runs the usage-tracker server at logon with no console window.\r\n"
             "' Remove this file (or run: usage-tracker setup --undo autostart) to stop it.\r\n"
@@ -235,6 +251,7 @@ def _systemd_unit_path() -> Path:
 
 def _systemd_unit_body() -> str:
     cmd = ' '.join(f'"{part}"' if ' ' in part else part for part in launch_command())
+    cmd += ' --no-open'
     return (f'# {STAMP}\n'
             '[Unit]\n'
             'Description=usage-tracker — AI usage/limit/spend server (loopback :8770)\n'

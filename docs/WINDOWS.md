@@ -1,69 +1,184 @@
-# Windows
+# Installing on Windows
 
-This tool was written on Linux, for Linux. It runs on Windows — CI builds a `.exe` and
-exercises it on every release — but three of the four surfaces are Linux-shaped, and the
-honest version of this page says so before it says anything else.
+> [Türkçe sürüm](WINDOWS.tr.md) · This page covers Windows 10 and 11.
 
-**Read this first: nobody has run this on a real Windows desktop yet.** Everything below is
-either measured on a `windows-latest` CI runner (marked *measured*) or reasoned from the
-code (marked *unverified*). The difference matters most in the places a runner cannot
-reach: SmartScreen, antivirus, autostart, and whether your Claude data is where the tool
-looks for it. If you try it, [open an issue](https://github.com/ihsandeniz/usage-tracker/issues)
-with what you found — that is the missing half of this page.
+You do not have to type any commands. Download one file, double-click it, and the program
+asks you the rest.
 
-## What you get, and what you do not
+---
 
-| Surface | Linux | Windows |
+## Install — three steps
+
+### 1. Download the file
+
+Go to the [latest release](https://github.com/ihsandeniz/usage-tracker/releases/latest) and
+click **`usage-tracker-<version>-windows-x64.exe`**. One file, about 10 MB. There is no
+separate installer and no runtime to install first: the wizard, the panel and the command
+line all live inside that one file.
+
+Leaving it in your Downloads folder is fine — the program will offer to copy itself
+somewhere permanent in a moment.
+
+### 2. Double-click it
+
+**What you will see:** Windows will most likely show a blue warning:
+
+> **Windows protected your PC** — Microsoft Defender SmartScreen prevented an unrecognized
+> app from starting.
+
+This does **not** mean a virus was found. It means "I have not seen this file before and it
+carries no digital signature". Signing requires a paid certificate this project does not
+have. To continue:
+
+1. Click **More info**
+2. Click the **Run anyway** button that appears
+
+> If you would rather not do that — a reasonable position — see
+> [Running from source](#running-from-source) at the end: there, every line you run is
+> readable Python.
+
+### 3. The wizard opens by itself
+
+A **black console window** appears (that is normal — the program lives there) and **the
+setup page opens in your browser on its own**. The **TR/EN** button in the top right
+switches languages.
+
+The wizard asks about four things. All optional, all undoable:
+
+| Step | What it does | Suggested |
 |---|---|---|
-| Web panel (`http://127.0.0.1:8770`) | ✅ | ✅ *measured* |
-| CLI — `usage · providers · guard · watch · doctor · config` | ✅ | ✅ *measured* |
-| Bar feeder JSON (`usage --format waybar`) | ✅ | ✅ — the JSON is produced; no Windows bar consumes it out of the box |
-| waybar badge (`surface/waybar-usage.sh`) | ✅ | ❌ bash + a Wayland bar. Use `usage --format waybar` instead |
-| System tray icon | ✅ (needs Qt) | ❌ not in the packaged build — Qt is deliberately excluded |
-| Floating widget (`surface/usage-widget`) | ✅ | ❌ bash + `hyprctl` |
-| Setup wizard — terminal and browser | ✅ `./setup.sh` | ✅ `usage-tracker setup [--ui]` |
-| Autostart | `service.sh install` (systemd) | the wizard writes a hidden launcher |
+| **Put the program somewhere permanent** | Copies the file into `%LOCALAPPDATA%\Programs\usage-tracker\` | ✅ Yes — so the shortcut survives emptying Downloads |
+| **Start it when you log in** | Starts with **no window** every time you turn the machine on | ✅ Yes — this is the part that makes it effortless |
+| **Panel shortcut** | Adds "usage-tracker" to the Start menu | ✅ Yes |
+| **API keys** | Only for *hosted* providers like OpenRouter | ⏭️ Skip for now — Claude usage needs **no key** |
 
-The panel and the CLI are the whole product on Windows. That is enough to answer "how much
-have I used and what has it cost", which is what the tool is for.
+Every step has a **"Show what it writes"** button: it prints the exact path and the exact
+contents before anything is written. Any step can be reversed with **"Undo"** from the same
+page.
 
-## Install
+When you are done, click **Finish**. The wizard closes and the panel opens. That is the
+whole installation.
 
-### Option A — the single file (no Python)
+---
 
-1. Download `usage-tracker-<version>-windows-x64.exe` from
-   [Releases](https://github.com/ihsandeniz/usage-tracker/releases).
-2. Put it somewhere permanent — `%LOCALAPPDATA%\Programs\usage-tracker\` is a good choice.
-   It never writes next to itself, so a read-only or protected folder is fine too.
-3. Open a terminal in that folder and run the wizard:
+## After it is installed
 
-   ```powershell
-   .\usage-tracker.exe setup          # question by question, in the terminal
-   .\usage-tracker.exe setup --ui     # the same steps as a page in your browser
-   .\usage-tracker.exe setup --auto   # no questions: install, autostart, shortcut, check
-   ```
+- **Opening the panel:** type `usage-tracker` in the Start menu and click it. (Or visit
+  <http://127.0.0.1:8770>.)
+- **Where it runs:** on your machine only, bound to `127.0.0.1`. It is not reachable from
+  the network and it sends your data nowhere.
+- **Removing it:** see [Uninstalling](#uninstalling).
 
-   Four steps, and every one of them shows you the exact file it is about to write before it
-   writes it. It copies the program into `%LOCALAPPDATA%\Programs\usage-tracker\`, adds a
-   hidden launcher to your Startup folder, puts a shortcut in the Start menu, and then runs
-   the same checks as `doctor`. Nothing needs administrator rights.
+---
 
-   Changed your mind? `usage-tracker setup --uninstall` removes what it wrote — and only
-   what it wrote: a file it did not create is backed up rather than overwritten, and left
-   alone rather than deleted.
+## If something went wrong
 
-4. Or skip the wizard entirely: double-clicking the `.exe` serves the panel on
-   **http://127.0.0.1:8770**. `usage-tracker panel` opens it in a browser, starting the
-   server first if nothing is listening.
+### I double-clicked, a black window opened, and nothing else happened
 
-**SmartScreen will warn you.** *(unverified — CI cannot see SmartScreen.)* The binary is
-unsigned: code-signing certificates cost money this project does not have. Windows shows
-"Windows protected your PC" → *More info* → *Run anyway*. Antivirus false positives are
-also common for PyInstaller binaries. If you are not comfortable with that — and it is a
-reasonable thing not to be comfortable with — use Option B, where you can read every line
-you run.
+That was the behaviour of **older versions**, and it is fixed. From `v0.4.0` on, the browser
+opens by itself. Check your version: it is the first line in the black window
+(`usage-tracker 0.4.0 → http://127.0.0.1:8770`).
 
-### Option B — from source (Python 3.9+)
+If your browser still does not open, type the address from that window yourself:
+**http://127.0.0.1:8770**
+
+### I closed the black window and the program stopped
+
+That is correct behaviour: the window *is* the program. Closing it stops it.
+
+The fix is the wizard's **"Start it when you log in"** step. After that the program starts
+with no window at all, and you never see that console again.
+
+### Windows deleted the file / my antivirus quarantined it
+
+PyInstaller-packaged programs trigger false positives from time to time. Your options:
+
+1. Mark the downloaded file as an **exception** in your antivirus
+2. Or [run from source](#running-from-source) — every line there is readable Python
+3. If you want to check the file is the one that was published, every release ships a
+   `SHA256SUMS.txt`
+
+### The panel opened but there is no data
+
+The program reads what Claude Code writes on your machine:
+`C:\Users\<your-name>\.claude\projects`
+
+If that folder does not exist, there is nothing to show. The usual reasons:
+
+- **You use Claude Code inside WSL.** WSL has its own home directory and a Windows program
+  cannot see it. Run the Linux version inside WSL instead.
+- You have never run Claude Code on this machine.
+
+To check, run `usage-tracker doctor` — it names every path it looked at.
+
+### "Port already in use"
+
+Something else is holding port 8770. Run it on another port: open the Start menu, type
+`cmd`, and paste this (adjust the path if yours differs):
+
+```
+set USAGE_PORT=8771
+"%LOCALAPPDATA%\Programs\usage-tracker\usage-tracker.exe"
+```
+
+---
+
+## Uninstalling
+
+The easiest way to undo everything the wizard wrote is to open the wizard again and press
+**Undo** on each step.
+
+By hand, there are three places:
+
+| What | Where |
+|---|---|
+| The program itself | `%LOCALAPPDATA%\Programs\usage-tracker\` |
+| Autostart | `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\usage-tracker.vbs` |
+| Your settings and data | `%APPDATA%\usage-tracker\` and `%LOCALAPPDATA%\usage-tracker\` |
+
+Nothing is written to the registry — except provider API keys if you added any
+(`HKCU\Environment`), which the wizard's key step also removes.
+
+---
+
+## What you get on Windows, and what you do not
+
+| | Available |
+|---|---|
+| Web panel | ✅ |
+| Setup wizard (browser and terminal) | ✅ |
+| Command line (`usage`, `guard`, `doctor`…) | ✅ |
+| Windowless start at logon | ✅ |
+| System tray icon | ❌ needs Qt, deliberately not bundled |
+| waybar badge / floating widget | ❌ these are Linux desktop surfaces |
+
+The panel and the command line are the whole product here, and they are enough to answer
+"how much have I used and what has it cost".
+
+---
+
+## The command line, if you want it
+
+Everything the wizard does has a command behind it, and the packaged `.exe` *is* that
+command:
+
+```powershell
+usage-tracker setup            # the wizard, in the terminal
+usage-tracker setup --ui       # the wizard, in a browser
+usage-tracker setup --auto     # no questions
+usage-tracker setup --uninstall
+usage-tracker panel            # open the panel, starting the server if needed
+usage-tracker doctor           # what is configured, what is not
+usage-tracker guard --quiet    # exit code 0/1/2/3 — for your own scripts
+```
+
+Full reference: [`CLI.md`](CLI.md).
+
+---
+
+## Running from source
+
+If you would rather not run an unsigned `.exe`:
 
 ```powershell
 git clone https://github.com/ihsandeniz/usage-tracker.git
@@ -71,157 +186,34 @@ cd usage-tracker
 python server.py
 ```
 
-No dependencies, no build step, no virtualenv needed — the tool is stdlib-only. Every CLI
-example that says `usage-tracker <command>` becomes `python server.py <command>`.
-
-`install.sh`, `setup.sh` and `service.sh` are bash and do nothing useful here. Skip them.
-
-## First run
+Python 3.9 or newer is enough — no dependencies, no build step. On this path every
+`usage-tracker <command>` becomes `python server.py <command>`:
 
 ```powershell
-usage-tracker.exe doctor
+python server.py setup --ui     # the wizard, in a browser
+python server.py doctor         # what was found, what is missing
+python server.py usage          # limits and spend, in the terminal
 ```
 
-`doctor` is the answer to "did it find anything". It prints eight checks — Python, paths,
-price catalogue, Claude data, server, local computation, live limits, provider keys — and
-never prints the *value* of an API key, only whether one is set. Paste its output into a
-bug report without worrying.
+---
 
-The check that matters most on Windows is **Claude data**:
+## Which claims on this page are measured
 
-```
-✓ Claude data       C:\Users\you\.claude\projects · 214 transcript file(s)
-```
+This project is developed on Linux; the Windows side is measured by automated runs on
+GitHub's `windows-latest` machines. The honest split:
 
-If it says the directory is missing, see [No data found](#no-data-found).
+**Measured**, on real Windows, on every release:
+- the `.exe` starts and serves the panel and the wire
+- prices come from the catalogue inside the package
+- the wizard writes to the Startup folder, undoes it, and leaves a file it did not write alone
+- on a fresh machine, launching it opens the wizard, and *Finish* hands over to the panel
+- the console window explains itself in both languages
 
-## Where things live
+**Not measured** — these need a real desktop:
+- how SmartScreen and antivirus behave
+- whether autostart survives a reboot
+- cold start time
+- where Claude Code keeps its data on your particular Windows install
 
-*measured on the CI runner via `python -m usage.platform`; the tool prints the real paths on
-your machine with the same command.*
-
-| | Path |
-|---|---|
-| settings, view config | `%APPDATA%\usage-tracker\` |
-| calibration, live cache | `%LOCALAPPDATA%\usage-tracker\State\` |
-| price catalogue cache | `%LOCALAPPDATA%\usage-tracker\Cache\` |
-
-Nothing is ever written into the installation directory. To uninstall: delete the `.exe`
-and those three folders. There is no registry key, no service, no installer.
-
-What it *reads* — read-only, always:
-
-| Source | Path |
-|---|---|
-| Claude Code transcripts | `%USERPROFILE%\.claude\projects\**\*.jsonl` |
-| Claude live limits (OAuth token) | `%USERPROFILE%\.claude\.credentials.json` |
-| Codex sessions | `%USERPROFILE%\.codex\sessions\` |
-| Aider, Continue, Cody, Windsurf, Jan | under `%USERPROFILE%\` — see `doctor` |
-
-> ⚠️ **If you use Claude Code inside WSL, this will find nothing.** *(unverified, but it follows
-> from the paths)* WSL has its own home directory, and a Windows `.exe` looking at
-> `%USERPROFILE%\.claude` will not see `\\wsl$\Ubuntu\home\you\.claude`. Run the Linux
-> version inside WSL instead — that is the supported path, and the whole tool works there
-> except the graphical surfaces.
-
-## Provider API keys
-
-Keys come from environment variables. `setx` writes them permanently:
-
-```powershell
-setx OPENROUTER_API_KEY "sk-or-..."
-```
-
-Then **open a new terminal** — `setx` does not touch the session you typed it in. Confirm
-with `usage-tracker.exe doctor`, which lists key names and set/unset, never values.
-
-The full table of provider → variable is in the [README](../README.md#provider-keys).
-
-## Autostart
-
-`usage-tracker setup` does this for you, and this is what it writes — the wizard shows you
-the same text before it writes it:
-
-```
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\usage-tracker.vbs
-```
-
-A three-line VBScript, not a `.lnk`: shortcuts need COM to create, and this project has no
-dependencies. It matters for a second reason too — the `.exe` is a console program, so a
-plain shortcut would leave a black window open at every logon and the server would die when
-you closed it. `WScript.Shell.Run "…", 0, False` starts it with no window at all.
-
-Removing it is deleting that file, or `usage-tracker setup --undo autostart`. *(measured on
-a windows-latest runner: the file is written, the launcher is hidden, undo removes it, and
-a file the wizard did not write survives undo — see `package.yml`. Whether it actually
-starts at logon needs a real machine, which is still on the list below.)*
-
-## Troubleshooting
-
-### Port already in use
-
-```powershell
-$env:USAGE_PORT = "8771"; usage-tracker.exe
-```
-
-The port is always bound to `127.0.0.1` — never to a network interface, on any platform,
-regardless of this variable.
-
-### No data found
-
-`doctor` reports "Claude data: not found". In order of likelihood:
-
-1. **You use Claude Code in WSL** — see the warning above.
-2. **You have never run Claude Code on this machine.** The tool reads transcripts; without
-   them there is nothing to count.
-3. **Claude Code stores its data somewhere else on your Windows install.** This is the one
-   the author cannot check without a Windows machine. If `%USERPROFILE%\.claude` does not
-   exist but you do use Claude Code natively on Windows, that is a real bug and worth an
-   issue — include where the directory actually is.
-
-### Live limit percentages are missing
-
-The real (uncalibrated) limits come from Claude's OAuth token in
-`%USERPROFILE%\.claude\.credentials.json`, read-only and never refreshed. *(unverified:
-whether Claude Code on Windows keeps the token in that file or in Credential Manager.)* If
-the file is not there, the panel falls back to calibrated estimates and says so — the number
-is marked, not faked.
-
-### Prices show as $0.00 or "unknown"
-
-The price catalogue ships inside the binary (~5,800 models), so this should not happen on a
-fresh install; `doctor` names the source it used. An unknown model is reported as unknown
-rather than counted as zero — a missing price is not free.
-
-### The panel loads but shows nothing
-
-Check the API directly:
-
-```powershell
-curl http://127.0.0.1:8770/v1/usage
-```
-
-If that returns JSON and the page is still blank, it is a static-file problem, not a data
-problem — please open an issue. This exact class of bug shipped in 0.2.1 and was found by
-the first packaging run: the wire endpoint was correct while every panel file 404'd, because
-a path comparison held one side unresolved and `%TEMP%` on Windows is often an 8.3 short
-name. Fixed in 0.2.2; if you see it again the guard has found a third spelling.
-
-## For a first real-machine run
-
-If you are testing this on Windows for the first time, these are the answers worth
-recording — they are exactly what the CI runner cannot produce:
-
-- [ ] Does SmartScreen block it, and what does the dialog say?
-- [ ] Does any antivirus quarantine the `.exe`?
-- [ ] Does `doctor` find `%USERPROFILE%\.claude\projects` — with a native (non-WSL) install?
-- [ ] Is `.credentials.json` there, and do live percentages appear?
-- [ ] Does the panel render — cards, bars, the spend table — in a real browser?
-- [ ] Cold start: how long from double-click to the panel answering?
-- [ ] Does Task Scheduler autostart survive a reboot?
-- [ ] Does the console show mojibake anywhere (`?` or boxes instead of `◐ █ ⚠ →`)?
-
-The last one has history: before 0.2.2 the packaged tool crashed outright on its startup
-banner whenever its output was redirected, because `→` does not exist in the legacy code
-page Windows falls back to. It is fixed and pinned by tests, but that class of bug hides in
-whichever surface nobody looked at.
+If you try any of these, [open an issue](https://github.com/ihsandeniz/usage-tracker/issues).
+That list is the missing half of this page.

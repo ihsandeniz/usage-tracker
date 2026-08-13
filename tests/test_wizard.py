@@ -436,5 +436,96 @@ class TheMachineInterface(_Sandbox):
         self.assertFalse(wizard.installed_binary().exists())
 
 
+class TheFirstRunOpensTheWizard(_Sandbox):
+    """🔴 Turun kaynağı: ihsan `.exe`'yi gerçek bir Windows makinesinde **çift tıkladı**,
+    siyah bir pencere açıldı ve orada kaldı. Sunucu çalışıyordu; tarayıcı açılmıyordu,
+    sihirbaz açılmıyordu ve `usage-tracker setup` yazması gerektiğini bilmesinin bir yolu
+    yoktu. Belge bile "çift tıkla, panel açılır" diyordu — açılmıyordu.
+
+    Kural: **bir kurulum, kullanıcıdan komut yazmasını istediği anda kurulum olmaktan çıkar.**
+    """
+
+    def _server(self):
+        import server as server_mod
+        return server_mod
+
+    def test_a_fresh_machine_counts_as_a_first_run(self):
+        self.assertTrue(wizard.is_first_run())
+
+    def test_installing_or_enabling_autostart_ends_the_first_run(self):
+        wizard.do('autostart')
+        self.assertFalse(wizard.is_first_run(),
+                         'the wizard would open again on every launch')
+
+    def test_on_windows_the_first_launch_opens_the_wizard_then_the_panel(self):
+        server_mod = self._server()
+        calls = []
+        with mock.patch.object(wizard, 'is_windows', return_value=True), \
+             mock.patch.object(wizard, 'is_first_run', return_value=True), \
+             mock.patch.dict(os.environ, {'UT_NO_BROWSER': '1'}), \
+             mock.patch('usage.wizard_server.serve',
+                        side_effect=lambda *a, **k: calls.append('wizard')):
+            server_mod._greet_and_open(no_open=False)
+        self.assertEqual(calls, ['wizard'], 'the wizard never opened on a fresh machine')
+
+    def test_the_autostart_copy_opens_nothing(self):
+        """Oturum açılışında koşan kopya tarayıcı açarsa, kullanıcı her açılışta bir pencere
+        kapatır — ve sonunda otomatik başlatmayı kapatır."""
+        server_mod = self._server()
+        with mock.patch('usage.wizard_server.serve') as serve, \
+             mock.patch('webbrowser.open') as opened:
+            server_mod._greet_and_open(no_open=True)
+        serve.assert_not_called()
+        opened.assert_not_called()
+
+    def test_the_launcher_it_writes_passes_no_open(self):
+        for step, body in (('autostart', wizard._autostart_body()),):
+            with self.subTest(step=step):
+                self.assertIn('--no-open', body,
+                              'the logon launcher would open a browser every time')
+
+    def test_linux_is_left_alone(self):
+        """Linux'ta bu ikili çoğunlukla systemd altında ya da SSH'ta koşar; oralarda
+        tarayıcı açmak yardım değil sürprizdir."""
+        server_mod = self._server()
+        with mock.patch.object(wizard, 'is_windows', return_value=False), \
+             mock.patch.object(wizard, 'is_first_run', return_value=True), \
+             mock.patch('usage.wizard_server.serve') as serve, \
+             mock.patch('webbrowser.open') as opened:
+            server_mod._greet_and_open(no_open=False)
+        serve.assert_not_called()
+        opened.assert_not_called()
+
+
+class TheWindowIsBilingual(_Sandbox):
+    """Makinenin dilini yanlış tahmin etmenin bedeli, iki satır fazladan metinden büyük."""
+
+    def test_both_languages_are_printed(self):
+        from usage import i18n
+        lines = i18n.both('panel_running', url='http://127.0.0.1:8770')
+        self.assertEqual(len(lines), 2)
+        self.assertNotEqual(lines[0], lines[1])
+        self.assertTrue(all('127.0.0.1:8770' in line for line in lines))
+
+    def test_the_language_can_be_forced(self):
+        from usage import i18n
+        with mock.patch.dict(os.environ, {'UT_LANG': 'tr'}):
+            self.assertEqual(i18n.language(), 'tr')
+            self.assertIn('Panel çalışıyor', i18n.t('panel_running', url='x'))
+        with mock.patch.dict(os.environ, {'UT_LANG': 'en'}):
+            self.assertEqual(i18n.language(), 'en')
+
+    def test_an_unknown_key_never_crashes_the_startup(self):
+        from usage import i18n
+        self.assertEqual(i18n.t('no-such-message'), 'no-such-message')
+
+    def test_every_message_exists_in_both_languages(self):
+        """Yarım çeviri, kullanıcının bir cümleyi anlayıp diğerini anlamaması demek."""
+        from usage import i18n
+        missing = [key for key, entry in i18n.MESSAGES.items()
+                   if not entry.get('en') or not entry.get('tr')]
+        self.assertEqual(missing, [])
+
+
 if __name__ == '__main__':
     unittest.main()
