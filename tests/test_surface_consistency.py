@@ -104,9 +104,12 @@ class Y7Rounding(unittest.TestCase):
     def _jq_round(self, v):
         """jq banker's rounding: round(v*10)/10."""
         # Built-in jq round() banker's rounding (round-half-to-even)
+        # 2 sn'lik bütçe jq'nun yuvarlamasını değil, koşucunun disk hızını ölçüyordu:
+        # windows-latest'te süreç açılışı bunu aştı ve test **yuvarlama yüzünden değil**
+        # zaman aşımıyla düştü (2026-08-13). Yeni bütçe bir askıyı hâlâ yakalar.
         result = subprocess.run(
             ['jq', '-n', f'({v}*10|round/10)'],
-            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=2
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30
         )
         if result.returncode == 0:
             return float(result.stdout.strip())

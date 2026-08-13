@@ -53,11 +53,16 @@ jobs:
           if ($cat.modelCount -lt 1000)  { throw "bundled catalogue looks empty: $($cat.modelCount)" }
 
       - name: Static assets survived the bundling
+        # Bu adım bir kez "web/ pakete girmedi" diye düştü ve sebep o değildi: dosyalar
+        # paketteydi, traversal koruması tabanı **çözülmemiş** tuttuğu için 404 dönüyordu
+        # (%TEMP% 8.3 kısa adı). `catch {}` gerçek hatayı yutuyordu — yani adım yanlış
+        # suçluyu gösterdi. Son hata ve durum kodu artık log'a düşüyor.
         shell: pwsh
         run: |
           $env:USAGE_PORT = '8772'
           $proc = Start-Process -FilePath dist\usage-tracker.exe -PassThru -NoNewWindow
           $ok = $false
+          $last = 'never attempted'
           foreach ($i in 1..40) {
             Start-Sleep -Milliseconds 500
             try {
@@ -66,10 +71,17 @@ jobs:
                 if ($r.StatusCode -ne 200) { throw "$p -> $($r.StatusCode)" }
               }
               $ok = $true; break
-            } catch { }
+            } catch {
+              $code = $_.Exception.Response.StatusCode.value__
+              $last = if ($code) { "$($_.Exception.Message) (HTTP $code)" }
+                      else { $_.Exception.Message }
+            }
           }
           if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
-          if (-not $ok) { throw 'web/ did not make it into the bundle' }
+          if (-not $ok) {
+            # 404 = paket sağlam, yol karşılaştırması bozuk. Bağlantı hatası = süreç ölü.
+            throw "the panel never served its files — last error: $last"
+          }
 
       - name: The exe is also the CLI
         # Tek giriş noktası: pakette ikinci bir çalıştırılabilir yok, `usage-tracker.exe

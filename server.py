@@ -26,7 +26,23 @@ VERSION = '0.2.2'                                  # tek kaynak: Server başlı�
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
 from usage import platform as _paths          # noqa: E402
-WEBD = _paths.resource_dir() / 'web'       # donmuş pakette sys._MEIPASS/web
+# `.resolve()` şart: aşağıdaki traversal koruması bu tabanı **çözülmüş** bir yolla
+# karşılaştırıyor. Taban çözülmemişse ikisi aynı dizini gösterse bile eşleşmez ve panelin
+# TÜM statik dosyaları 404 döner — API çalışırken ekran boş kalır. Windows'ta olağan hâl
+# budur: `%TEMP%` çoğu kurulumda 8.3 kısa adıdır (`RUNNER~1`), `sys._MEIPASS` onu taşır,
+# `resolve()` ise uzun adı verir.
+WEBD = (_paths.resource_dir() / 'web').resolve()   # donmuş pakette sys._MEIPASS/web
+
+
+def static_file(path: str, root=None):
+    """İstenen yolun `root` içindeki gerçek dosya karşılığı, yoksa None (traversal koruması).
+
+    Ayrı bir fonksiyon, çünkü buradaki tek kural — "çözülmüş yol tabanın altında olmalı" —
+    yalnız çalıştırılarak sınanabilir ve bir platformda sessizce ters dönebilir.
+    """
+    base = WEBD if root is None else Path(root).resolve()
+    fp = (base / path.lstrip('/')).resolve()
+    return fp if (base in fp.parents and fp.is_file()) else None
 
 # DNS rebinding koruması: Host başlığı allowlist (setup_server.py'den uyarlanmış)
 # Meşru olanlar: 127.0.0.1:<PORT>, localhost:<PORT>, [::1]:<PORT>, portsuz varyantlar
@@ -200,8 +216,8 @@ class Handler(BaseHTTPRequestHandler):
         # statik dosya (web/)
         if path == '/':
             path = '/index.html'
-        fp = (WEBD / path.lstrip('/')).resolve()
-        if WEBD in fp.parents and fp.is_file():          # path-traversal koruması
+        fp = static_file(path)                           # path-traversal koruması
+        if fp is not None:
             body = fp.read_bytes()
             self.send_response(200)
             self.send_header('Content-Type', MIME.get(fp.suffix.lower(), 'application/octet-stream'))

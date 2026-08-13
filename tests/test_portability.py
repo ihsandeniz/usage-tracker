@@ -362,6 +362,49 @@ class StdlibPlatformIsNotShadowed(unittest.TestCase):
                 self.assertNotIn('platform', [a.name for a in node.names])
 
 
+class TheStaticGuardComparesLikeWithLike(unittest.TestCase):
+    """T6 — the panel's files are behind a path comparison, and comparisons need one shape.
+
+    The traversal guard resolves the *requested* path and checks it sits under the web root.
+    The root itself was stored unresolved, so anything that gives the same directory two
+    spellings makes every file 404 while the API keeps answering: the tool starts, the
+    endpoints work, and the screen is blank.
+
+    On Windows that is the normal case, not an edge one — `%TEMP%` is commonly an 8.3 short
+    name (`C:\\Users\\RUNNER~1\\...`), a PyInstaller bundle unpacks under it, and
+    `sys._MEIPASS` carries the short spelling while `resolve()` returns the long one. The
+    packaging run measured exactly that on 2026-08-13: `/`, `/app.js` and `/styles.css`
+    never returned 200 from a binary whose wire endpoint was fine.
+
+    A symlink is the same defect with a spelling Linux can produce, which is why this test
+    can run anywhere.
+    """
+
+    def setUp(self):
+        import server as server_mod
+        self.server_mod = server_mod
+        self.root = pathlib.Path(tempfile.mkdtemp(prefix='ut-static-'))
+        (self.root / 'real' / 'web').mkdir(parents=True)
+        (self.root / 'real' / 'web' / 'app.js').write_text('ok', encoding='utf-8')
+        (self.root / 'link').symlink_to(self.root / 'real')
+
+    def test_a_file_reached_through_an_alias_is_still_served(self):
+        served = self.server_mod.static_file('/app.js', root=self.root / 'link' / 'web')
+        self.assertIsNotNone(served, 'the web root spelled differently served nothing')
+        self.assertEqual(served.read_text(encoding='utf-8'), 'ok')
+
+    def test_the_traversal_guard_still_says_no(self):
+        """The fix must not buy the panel's files with the guard they sit behind."""
+        (self.root / 'real' / 'secret.txt').write_text('no', encoding='utf-8')
+        for attempt in ('/../secret.txt', '/..%2fsecret.txt', '/subdir/../../secret.txt'):
+            with self.subTest(attempt=attempt):
+                self.assertIsNone(
+                    self.server_mod.static_file(attempt, root=self.root / 'link' / 'web'))
+
+    def test_the_module_root_is_resolved_at_import(self):
+        self.assertEqual(self.server_mod.WEBD, self.server_mod.WEBD.resolve())
+
+
 class TheEntryPointSurvivesALegacyCodePage(unittest.TestCase):
     """T5 — the one the CI harness was hiding.
 
