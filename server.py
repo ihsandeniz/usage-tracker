@@ -392,6 +392,13 @@ def _greet_and_open(no_open: bool) -> None:
     from usage import i18n
     from usage import wizard
 
+    # Bu satır burada da duruyor, `main()` zaten çağırdığı hâlde. Sebep: bu fonksiyonun
+    # bastığı ilk şey **Türkçe** ve Türkçe'nin ilk harfi `İ` (U+0130) — cp1252'de yok.
+    # Koruma çalışmadan çağrılırsa (test, ileride başka bir giriş noktası) karşılama satırı
+    # tam da hoş geldin derken çöker. Windows koşucusunda ölçüldü, 2026-08-13: iki dilli
+    # çıktı, v0.2.2'de kapatılan kusur sınıfını yeni bir kapıdan geri getirdi.
+    _paths.ensure_utf8_output()
+
     # Yalnız Windows. Linux'ta bu ikili çoğunlukla systemd altında, konteynerde ya da SSH
     # oturumunda koşuyor; oralarda tarayıcı açmak (ya da sihirbazı bloklamak) yardım değil
     # sürpriz olur. Linux'un kendi yolu `./setup.sh` ve o yol bozulmadı.

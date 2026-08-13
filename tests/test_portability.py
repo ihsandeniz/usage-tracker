@@ -484,6 +484,31 @@ class TheEntryPointSurvivesALegacyCodePage(unittest.TestCase):
         self.assertIn('text', payload)
         self.assertIn('class', payload)
 
+    def test_the_turkish_greeting_survives_a_legacy_code_page(self):
+        """`İ` (U+0130) cp1252'de yoktur ve iki dilli karşılamanın **ilk** harfidir.
+
+        Windows koşucusu bunu 2026-08-13'te gösterdi: v0.2.2'de kapatılan kusur sınıfı,
+        çıktıya Türkçe eklenince yeni bir kapıdan geri geldi. Koruma artık karşılamayı basan
+        fonksiyonun kendi içinde de çağrılıyor; bu test onu cp1252 altında koşturuyor.
+        """
+        import io
+        import sys as _sys
+        sys.path.insert(0, str(REPO))
+        import server as server_mod
+        from usage import i18n, wizard
+
+        buffer = io.TextIOWrapper(io.BytesIO(), encoding='cp1252', errors='strict')
+        original = _sys.stdout
+        _sys.stdout = buffer
+        try:
+            with mock.patch.object(wizard, 'is_windows', return_value=True), \
+                 mock.patch.object(wizard, 'is_first_run', return_value=False), \
+                 mock.patch.dict(os.environ, {'UT_NO_BROWSER': '1', 'UT_LANG': 'tr'}):
+                server_mod._greet_and_open(no_open=False)     # eskiden burada çökerdi
+        finally:
+            _sys.stdout = original
+        self.assertIn('İlk', i18n.t('first_run', 'tr'), 'the message under test lost its İ')
+
     def test_a_mistyped_command_still_explains_itself(self):
         """The dispatcher's message is separated with `·` — cp1252 has it, but the reply
         travels through the same stream, so it is measured rather than assumed."""
