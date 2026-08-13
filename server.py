@@ -56,8 +56,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _drain_request_body(self, limit: int = 1 << 20) -> None:
+        """Reddedilen bir yazmanın gövdesi okunmadan soket kapanırsa istemci 403'ü göremez.
+
+        Kapanış anında okunmamış veri kalmışsa çekirdek RST gönderir; istemcinin
+        `getresponse()`'u yanıtı okumadan `ConnectionAbortedError` ile düşer. Yani CSRF
+        guard'ı **kendini açıklayamıyordu**: tarayıcı "ağ hatası" görüyordu, gerekçeyi
+        değil. Linux'ta görünmüyordu çünkü küçük gövde soket tamponuna sığıyor — Windows
+        py3.13 runner'ı 2026-08-13'te gösterdi.
+        """
+        if getattr(self, '_body_consumed', False):
+            return
+        self._body_consumed = True
+        try:
+            remaining = int(self.headers.get('Content-Length') or 0)
+        except (TypeError, ValueError):
+            return
+        if remaining > limit:              # tamamını okumak sınırsız bir söz olurdu
+            self.close_connection = True
+            remaining = limit
+        while remaining > 0:
+            chunk = self.rfile.read(min(remaining, 8192))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
     def _error(self, code: int, msg: str) -> None:
         """API error response — JSON format (tutarlı hata şeması)"""
+        self._drain_request_body()
         self._json(code, {'ok': False, 'error': msg})
 
     def _check_host(self) -> bool:
@@ -101,9 +127,14 @@ class Handler(BaseHTTPRequestHandler):
         except (TypeError, ValueError):
             return None
         if n <= 0 or n > limit:
-            return None
+            return None                    # okunmadı: `_error` gövdeyi boşaltmakla yükümlü
         try:
-            return json.loads(self.rfile.read(n).decode('utf-8'))
+            raw = self.rfile.read(n)
+        except Exception:
+            return None
+        self._body_consumed = True         # iki kez okumak istemciyi beklemeye sokar
+        try:
+            return json.loads(raw.decode('utf-8'))
         except Exception:
             return None
 
@@ -190,6 +221,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
 
     def do_POST(self):
+        self._body_consumed = False        # aynı bağlantıda ikinci istek (keep-alive)
         # DNS rebinding koruması: Host başlığını kontrol et
         if not self._check_host():
             return

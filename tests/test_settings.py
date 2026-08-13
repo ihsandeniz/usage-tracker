@@ -371,6 +371,58 @@ class HttpEndpoint(_Isolated):
                          if self.settings_path.exists() else '')
 
 
+class ARefusalReadsWhatItRefuses(unittest.TestCase):
+    """A refusal the caller cannot read is not a refusal, it is a broken connection.
+
+    The guards answer 403 before touching the request body. Closing the socket while the
+    body is still unread makes the kernel send RST, and the client's `getresponse()` raises
+    ConnectionAbortedError *instead of* returning the 403 that explains itself — the panel
+    would show "network error" and nobody would learn that Origin was the reason. Measured
+    on the windows-latest py3.13 runner, 2026-08-13, on a 40-byte body.
+
+    Measured here at the handler, not through a socket, and that is deliberate: a socket
+    test passed on Linux with the fix removed (loopback buffers absorb half a megabyte), so
+    it proved nothing about the code — the platform was answering the question. This asks
+    the code directly, and fails on the previous version.
+    """
+
+    def _handler(self, body: bytes, *, declared=None, consumed=False):
+        """A real `Handler`, never connected. `__init__` would try to serve a socket, so the
+        instance is fabricated and given exactly what `_error` touches."""
+        import server as server_mod
+        h = object.__new__(server_mod.Handler)
+        h.headers = {'Content-Length': str(len(body) if declared is None else declared)}
+        h.rfile = io.BytesIO(body)
+        h.close_connection = False
+        h.replied = None
+        h._json = lambda code, obj: setattr(h, 'replied', (code, obj))
+        if consumed:
+            h._body_consumed = True
+        return h
+
+    def test_the_body_is_consumed_before_the_error_goes_out(self):
+        h = self._handler(b'{"refreshSeconds": 60}')
+        h._error(403, 'cross-origin write refused')
+        self.assertEqual(h.replied[0], 403)
+        self.assertEqual(h.rfile.read(), b'', 'the refused body was left in the socket')
+        self.assertFalse(h.close_connection)
+
+    def test_a_body_too_large_to_drain_closes_instead_of_pretending(self):
+        """Reading whatever arrives would be an unbounded promise. Past the cap the honest
+        answer is to stop reading and close — the client may still see a reset, but the
+        server is not the one holding the door open for it."""
+        h = self._handler(b'x' * 32, declared=(1 << 20) + 1)
+        h._error(403, 'nope')
+        self.assertTrue(h.close_connection)
+
+    def test_a_body_already_read_is_not_read_twice(self):
+        """`_read_json_body` consumes it on the valid path; draining again would block the
+        handler waiting for bytes the client already stopped sending."""
+        h = self._handler(b'{"a": 1}', consumed=True)
+        h._error(400, 'invalid request body')
+        self.assertEqual(h.rfile.read(), b'{"a": 1}')
+
+
 class PanelUsesTheSetting(unittest.TestCase):
     """The panel polled on a hardcoded 30s. A refresh setting that app.js ignores is a lie
     told by the UI about itself."""
