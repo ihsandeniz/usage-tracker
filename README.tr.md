@@ -26,6 +26,10 @@ penceresinde açar — her adım ne yazacağının **gerçek diff'ini** gösteri
 
 ![kurulum sihirbazı, waybar config'ine yazacağı diff'i gösteriyor](docs/setup-wizard.png)
 
+**Windows'ta mısın?** Sihirbaz bash, işine yaramaz; panel ve CLI ikisi de çalışır.
+[`docs/WINDOWS.md`](docs/WINDOWS.md) — hangi yüzeylerin **olmadığı** ve oradaki hangi
+iddianın gerçek makinede ölçüldüğü dâhil (şimdilik: hiçbiri).
+
 ```bash
 ./setup.sh --ui         # sihirbaz, sayfa olarak (pencere açar; URL'i her hâlükârda yazar)
 ./setup.sh --auto       # soru sormaz, her adımda önerilen cevabı alır

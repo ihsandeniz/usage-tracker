@@ -33,6 +33,10 @@ cd usage-tracker
 Rather click than type? `./setup.sh --ui` runs the same six steps in a browser window —
 each one showing a real diff of what it is about to write, with an Undo button next to it.
 
+**On Windows?** The wizard is bash and will not help you; the panel and the CLI both work.
+Read [`docs/WINDOWS.md`](docs/WINDOWS.md) — including which surfaces you do *not* get, and
+which of its claims have been measured on a real machine (so far: none of them).
+
 ![the setup wizard showing the exact diff it will write to your waybar config](docs/setup-wizard.png)
 
 ```bash
