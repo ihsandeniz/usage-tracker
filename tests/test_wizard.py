@@ -103,6 +103,7 @@ class ItRefusesToTouchWhatIsNotItsOwn(_Sandbox):
             wizard.undo('autostart')
         run.assert_not_called()
 
+    @unittest.skipIf(wizard.is_windows(), 'systemd is the Linux mechanism')
     def test_undo_does_stop_the_service_it_did_install(self):
         wizard.do('autostart')
         with mock.patch.object(wizard, '_run', return_value=(0, '')) as run:
@@ -173,7 +174,13 @@ class TheWindowsPaths(_Sandbox):
             self.assertIn('\r\n', body)
 
 
-class TheKeys(_Sandbox):
+class TheKeysOnDisk(_Sandbox):
+    """Linux tarafı: anahtarlar `setup.sh`'ın okuduğu dosyaya yazılır."""
+
+    def setUp(self):
+        super().setUp()
+        if wizard.is_windows():
+            self.skipTest('on Windows the store is HKCU\\Environment, not a file')
 
     def test_they_land_in_the_same_file_setup_sh_reads(self):
         """İki sihirbazın iki ayrı anahtar deposu, kullanıcının günler sonra fark edeceği
@@ -217,6 +224,91 @@ class TheKeys(_Sandbox):
         self.assertEqual(wizard._probe_keys()['set'], [])
 
 
+class _FakeRegistry:
+    """`winreg` yerine geçen en küçük şey. Amaç Windows'u taklit etmek değil, **Windows
+    kod yolunu her makinede koşturmak**: gerçek kayıt defterine yazan bir test, koştuğu
+    makineyi kirletir ve Linux'ta hiç koşmazdı."""
+
+    HKEY_CURRENT_USER = 'HKCU'
+    REG_SZ = 1
+
+    def __init__(self):
+        self.values = {}
+        self.broadcasts = 0
+
+    class _Key:
+        def __init__(self, store):
+            self.store = store
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def OpenKey(self, root, sub):                     # noqa: N802 — winreg's own naming
+        return self._Key(self)
+
+    CreateKey = OpenKey
+
+    def QueryValueEx(self, key, name):                # noqa: N802
+        if name not in key.store.values:
+            raise FileNotFoundError(name)
+        return key.store.values[name], self.REG_SZ
+
+    def SetValueEx(self, key, name, _res, _type, value):   # noqa: N802
+        key.store.values[name] = value
+
+    def DeleteValue(self, key, name):                 # noqa: N802
+        if name not in key.store.values:
+            raise FileNotFoundError(name)
+        del key.store.values[name]
+
+
+class TheKeysInTheRegistry(_Sandbox):
+    """Windows tarafı: değerler `HKCU\\Environment`'a yazılır, okuma yalnız ad döndürür."""
+
+    def setUp(self):
+        super().setUp()
+        self.as_windows()
+        self.registry = _FakeRegistry()
+        import sys as _sys
+        patch = mock.patch.dict(_sys.modules, {'winreg': self.registry})
+        patch.start()
+        self.addCleanup(patch.stop)
+        broadcast = mock.patch.object(wizard, '_win_broadcast_env')
+        self.broadcast = broadcast.start()
+        self.addCleanup(broadcast.stop)
+
+    def test_a_key_is_written_to_the_user_environment(self):
+        result = wizard.do('keys', {'keys': {'OPENROUTER_API_KEY': 'sk-or-secret'}})
+        self.assertTrue(result['ok'])
+        self.assertEqual(self.registry.values['OPENROUTER_API_KEY'], 'sk-or-secret')
+
+    def test_nothing_is_written_next_to_the_program(self):
+        """Windows'ta anahtar dosyası yoktur; yanlışlıkla bir tane oluşturmak, kullanıcının
+        beklemediği bir yerde düz metin anahtar bırakmak olurdu."""
+        wizard.do('keys', {'keys': {'OPENROUTER_API_KEY': 'sk-or-secret'}})
+        self.assertFalse(wizard.env_file().exists())
+
+    def test_the_probe_reports_the_name_and_never_the_value(self):
+        wizard.do('keys', {'keys': {'OPENROUTER_API_KEY': 'sk-or-secret'}})
+        probe = wizard._probe_keys()
+        self.assertIn('OPENROUTER_API_KEY', probe['set'])
+        self.assertNotIn('sk-or-secret', repr(probe))
+
+    def test_the_change_is_announced_so_new_processes_see_it(self):
+        """`setx` yayını kendi yapar; `winreg` yapmaz. Yayın olmadan yeni açılan terminal
+        bile eski ortamı miras alır ve kullanıcı anahtarı yazdığını sanır."""
+        wizard.do('keys', {'keys': {'OPENROUTER_API_KEY': 'sk-or-secret'}})
+        self.assertTrue(self.broadcast.called)
+
+    def test_undo_removes_the_value(self):
+        wizard.do('keys', {'keys': {'OPENROUTER_API_KEY': 'sk-or-secret'}})
+        wizard.undo('keys')
+        self.assertNotIn('OPENROUTER_API_KEY', self.registry.values)
+
+
 class TheRecommendedRun(_Sandbox):
 
     def test_auto_never_writes_a_key(self):
@@ -235,6 +327,7 @@ class TheRecommendedRun(_Sandbox):
         self.assertFalse(result['ok'])
         self.assertIn('shortcut', result['failed'])
 
+    @unittest.skipIf(wizard.is_windows(), 'the key store is the registry there')
     def test_uninstall_keeps_the_keys_and_the_data(self):
         wizard.do('keys', {'keys': {'OPENROUTER_API_KEY': 'sk-or-secret'}})
         wizard.do('shortcut')
@@ -279,7 +372,7 @@ class TheBrowserWizardAnnouncesItself(_Sandbox):
         import re
         import subprocess
         import sys
-        env = dict(os.environ, BROWSER='true')          # gerçek tarayıcı açma (FAZ 6 kazası)
+        env = dict(os.environ, UT_NO_BROWSER='1')       # testin ekrana dokunma hakkı yok
         proc = subprocess.Popen(
             [sys.executable, str(pathlib.Path(__file__).resolve().parent.parent / 'server.py'),
              'setup', '--ui'],

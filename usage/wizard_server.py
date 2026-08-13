@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import secrets
 import threading
 import time
@@ -186,7 +187,10 @@ def serve(open_browser: bool = True) -> int:
     print(f'  {url}', flush=True)
     print('  (the address carries a one-time token in the # part, which browsers never send '
           'to a server)\n  Closing the page or 10 idle minutes shuts this down.', flush=True)
-    if open_browser:
+    # `UT_NO_BROWSER=1`: başsız makinede ve testte pencere açtırmamak için. FAZ 6'da izole
+    # PATH kurulurken gerçek bir tarayıcı penceresi ihsan'ın masaüstünde açılmıştı — bir
+    # testin kullanıcının ekranına dokunmasının tek sebebi, dokunmamayı seçebilmemesidir.
+    if open_browser and os.environ.get('UT_NO_BROWSER') != '1':
         try:
             webbrowser.open(url)
         except Exception:                      # başsız makine: URL zaten yazıldı

@@ -295,12 +295,12 @@ jobs:
           ./dist/usage-tracker setup --do shortcut > /dev/null
           test -f "$HOME/.local/share/applications/usage-tracker.desktop" \
             || { echo '::error::no desktop entry written'; exit 1; }
-          BROWSER=true timeout 60 python - <<'PY'
+          UT_NO_BROWSER=1 timeout 60 python - <<'PY'
           import json, os, re, subprocess, sys, urllib.request
           # Tarayıcı yüzü de paketten servis ediliyor mu: sayfa, script ve jetonlu uç.
           proc = subprocess.Popen(['./dist/usage-tracker', 'setup', '--ui'],
                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                  text=True, env=dict(os.environ, BROWSER='true'))
+                                  text=True, env=dict(os.environ, UT_NO_BROWSER='1'))
           url = None
           for _ in range(20):
               line = proc.stdout.readline()
