@@ -21,8 +21,8 @@ with what you found — that is the missing half of this page.
 | waybar badge (`surface/waybar-usage.sh`) | ✅ | ❌ bash + a Wayland bar. Use `usage --format waybar` instead |
 | System tray icon | ✅ (needs Qt) | ❌ not in the packaged build — Qt is deliberately excluded |
 | Floating widget (`surface/usage-widget`) | ✅ | ❌ bash + `hyprctl` |
-| Setup wizard (`setup.sh`, `--ui`) | ✅ | ❌ bash |
-| Autostart | `service.sh install` (systemd) | Task Scheduler, by hand — see below |
+| Setup wizard — terminal and browser | ✅ `./setup.sh` | ✅ `usage-tracker setup [--ui]` |
+| Autostart | `service.sh install` (systemd) | the wizard writes a hidden launcher |
 
 The panel and the CLI are the whole product on Windows. That is enough to answer "how much
 have I used and what has it cost", which is what the tool is for.
@@ -35,8 +35,26 @@ have I used and what has it cost", which is what the tool is for.
    [Releases](https://github.com/ihsandeniz/usage-tracker/releases).
 2. Put it somewhere permanent — `%LOCALAPPDATA%\Programs\usage-tracker\` is a good choice.
    It never writes next to itself, so a read-only or protected folder is fine too.
-3. Double-click it, or run it from a terminal. It serves the panel on
-   **http://127.0.0.1:8770** and prints that address. Nothing opens a browser for you.
+3. Open a terminal in that folder and run the wizard:
+
+   ```powershell
+   .\usage-tracker.exe setup          # question by question, in the terminal
+   .\usage-tracker.exe setup --ui     # the same steps as a page in your browser
+   .\usage-tracker.exe setup --auto   # no questions: install, autostart, shortcut, check
+   ```
+
+   Four steps, and every one of them shows you the exact file it is about to write before it
+   writes it. It copies the program into `%LOCALAPPDATA%\Programs\usage-tracker\`, adds a
+   hidden launcher to your Startup folder, puts a shortcut in the Start menu, and then runs
+   the same checks as `doctor`. Nothing needs administrator rights.
+
+   Changed your mind? `usage-tracker setup --uninstall` removes what it wrote — and only
+   what it wrote: a file it did not create is backed up rather than overwritten, and left
+   alone rather than deleted.
+
+4. Or skip the wizard entirely: double-clicking the `.exe` serves the panel on
+   **http://127.0.0.1:8770**. `usage-tracker panel` opens it in a browser, starting the
+   server first if nothing is listening.
 
 **SmartScreen will warn you.** *(unverified — CI cannot see SmartScreen.)* The binary is
 unsigned: code-signing certificates cost money this project does not have. Windows shows
@@ -121,21 +139,22 @@ The full table of provider → variable is in the [README](../README.md#provider
 
 ## Autostart
 
-*(unverified — no runner can test Task Scheduler.)* There is no service installer for
-Windows. Two options, both by hand:
+`usage-tracker setup` does this for you, and this is what it writes — the wizard shows you
+the same text before it writes it:
 
-**Startup folder** — press `Win+R`, type `shell:startup`, and put a shortcut to the `.exe`
-in the folder that opens. It starts a console window at login.
+```
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\usage-tracker.vbs
+```
 
-**Task Scheduler** — no window, and it can restart on failure:
+A three-line VBScript, not a `.lnk`: shortcuts need COM to create, and this project has no
+dependencies. It matters for a second reason too — the `.exe` is a console program, so a
+plain shortcut would leave a black window open at every logon and the server would die when
+you closed it. `WScript.Shell.Run "…", 0, False` starts it with no window at all.
 
-1. Task Scheduler → *Create Task*
-2. General → *Run whether user is logged on or not* off; *Hidden* on
-3. Triggers → *At log on*
-4. Actions → *Start a program* → the full path to `usage-tracker.exe`
-5. Settings → *If the task fails, restart every 1 minute*
-
-Then open `http://127.0.0.1:8770` in a browser and pin the tab.
+Removing it is deleting that file, or `usage-tracker setup --undo autostart`. *(measured on
+a windows-latest runner: the file is written, the launcher is hidden, undo removes it, and
+a file the wizard did not write survives undo — see `package.yml`. Whether it actually
+starts at logon needs a real machine, which is still on the list below.)*
 
 ## Troubleshooting
 

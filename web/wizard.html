@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>usage-tracker · setup</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/setup.css">
+</head>
+<body class="setup">
+
+<div class="topbar">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>usage<em>-tracker</em></h1>
+    <span class="tag" id="tag">setup</span>
+  </div>
+  <div class="meta">
+    <span class="note" id="conn"></span>
+    <button class="txtbtn" id="lang" title="Türkçe / English">TR</button>
+    <button class="ghost" id="refresh" title="re-check">⟳</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section class="card intro">
+    <h2 id="t-introTitle">Let's get you set up</h2>
+    <p class="note" id="t-introBody"></p>
+    <p class="note" id="machine"></p>
+    <div class="intro-actions">
+      <button class="primary" id="auto-all">Set up the recommended parts</button>
+      <span class="note" id="t-autoNote"></span>
+    </div>
+  </section>
+
+  <ol class="steps" id="steps"></ol>
+
+  <section class="card outro">
+    <div class="outro-row">
+      <div>
+        <h2 id="t-doneTitle">Finished?</h2>
+        <p class="note" id="t-doneBody"></p>
+      </div>
+      <button class="primary" id="finish">Finish &amp; close</button>
+    </div>
+  </section>
+
+  <p class="footnote">
+    <span id="t-footPanel">panel</span>: <code id="panel-url">http://127.0.0.1:8770</code> ·
+    <span id="t-footUndo">undo everything</span>: <code>usage-tracker setup --uninstall</code>
+  </p>
+</div>
+
+<script src="/wizard.js"></script>
+</body>
+</html>

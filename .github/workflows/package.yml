@@ -130,6 +130,51 @@ jobs:
           if ($nan -ne 64)         { throw "--threshold nan returned $nan, not 64" }
           exit 0                   # iddialar geçti: adımın cevabı bu, son komutun kodu değil
 
+      - name: The setup wizard runs, writes, and undoes itself
+        # Sihirbazın Windows yarısı **yalnız burada** ölçülebiliyor: geliştirme makinesi
+        # Linux ve sahte platformlu testler yolun tutarlı olduğunu gösterir, çalıştığını
+        # değil. Bu adım gerçekten Başlangıç klasörüne yazıp geri alıyor.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $probe = & dist\usage-tracker.exe setup --probe | Out-String | ConvertFrom-Json
+          Write-Host "platform=$($probe.platform) frozen=$($probe.frozen) steps=$($probe.steps.Count)"
+          if ($probe.platform -ne 'windows') { throw "the wizard thinks it is on $($probe.platform)" }
+          if ($probe.steps.Count -ne 5)      { throw "expected 5 steps, got $($probe.steps.Count)" }
+
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\usage-tracker.vbs"
+          $menu    = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\usage-tracker.cmd"
+
+          # Önizleme, yazacağı dosyanın YOLUNU söylemek zorunda — "ne yazacağını göster"
+          # sözü, gösterdiğinin yazılanla aynı olmasıyla ölçülür.
+          $preview = & dist\usage-tracker.exe setup --preview autostart | Out-String | ConvertFrom-Json
+          if (-not ($preview.lines -join "`n").Contains('Startup')) { throw 'preview does not name the Startup folder' }
+
+          & dist\usage-tracker.exe setup --do autostart | Out-Null
+          & dist\usage-tracker.exe setup --do shortcut  | Out-Null
+          if (-not (Test-Path $startup)) { throw "no launcher at $startup" }
+          if (-not (Test-Path $menu))    { throw "no shortcut at $menu" }
+          # Gizli başlatıcı gerçekten gizli mi: `, 0, False` konsol penceresi açmaz.
+          if (-not (Get-Content $startup -Raw).Contains(', 0, False')) { throw 'the launcher would show a console window' }
+          Write-Host "wrote: $startup"
+          Write-Host "wrote: $menu"
+
+          & dist\usage-tracker.exe setup --undo autostart | Out-Null
+          & dist\usage-tracker.exe setup --undo shortcut  | Out-Null
+          if (Test-Path $startup) { throw 'undo left the launcher behind' }
+          if (Test-Path $menu)    { throw 'undo left the shortcut behind' }
+          Write-Host 'undo removed both'
+
+          # Yabancı bir dosyaya dokunmama sözü — sihirbazın en tehlikeli yetkisi budur.
+          Set-Content -Path $startup -Value "' the user wrote this" -NoNewline
+          & dist\usage-tracker.exe setup --undo autostart | Out-Null
+          if (-not (Test-Path $startup)) { throw 'undo deleted a file the wizard never wrote' }
+          Remove-Item $startup
+          Write-Host 'a foreign file survived undo'
+          exit 0
+
       - name: Where does it write on Windows
         # W0'ın kodla bulunabilen yarısı. Diğer yarısı (Claude/Codex Windows'ta verisini
         # nereye yazıyor) bir keşiftir ve gerçek makine ister.
@@ -210,6 +255,82 @@ jobs:
           [ "$over" = 1 ]  || [ "$over" = 3 ]  || { echo "::error::guard over returned $over"; exit 1; }
           [ "$misuse" = 64 ] || { echo "::error::misuse must exit 64, got $misuse"; exit 1; }
           [ "$nan" = 64 ] || { echo "::error::--threshold nan returned $nan, not 64"; exit 1; }
+
+      - name: The panel keeps its files after the launcher exits
+        # Tek dosyalık paket kendini `/tmp/_MEIxxxx`'e açar ve bu yolu çocuklarına miras
+        # bırakır; `panel` sunucuyu **kasten** kendinden uzun yaşasın diye başlatır, ebeveyn
+        # çıkınca da o dizin silinir. Miras kesilmezse sonuç: `/v1/usage` 200, panelin her
+        # dosyası 404 — araç çalışır, ekran boş. Ölçüldü 2026-08-13, bu ikilinin üstünde.
+        run: |
+          ./dist/usage-tracker panel --no-open
+          sleep 8
+          python - <<'PY'
+          import sys, urllib.error, urllib.request
+          bad = []
+          for path in ('/v1/usage', '/', '/app.js', '/styles.css'):
+              try:
+                  code = urllib.request.urlopen(f'http://127.0.0.1:8770{path}', timeout=5).status
+              except urllib.error.HTTPError as exc:
+                  code = exc.code
+                  bad.append(path)
+              print(f'  {path} -> {code}')
+          if bad:
+              print(f"::error::the detached server lost its bundled files: {', '.join(bad)}")
+              sys.exit(1)
+          PY
+
+      - name: The setup wizard runs from inside the package
+        run: |
+          ./dist/usage-tracker setup --probe > probe.json
+          python - <<'PY'
+          import json, sys
+          probe = json.load(open('probe.json', encoding='utf-8'))
+          print(f"platform={probe['platform']} frozen={probe['frozen']} "
+                f"steps={[s['id'] for s in probe['steps']]}")
+          if not probe['frozen']:
+              sys.exit('the wizard does not know it is packaged')
+          if len(probe['steps']) != 5:
+              sys.exit(f"expected 5 steps, got {len(probe['steps'])}")
+          PY
+          ./dist/usage-tracker setup --do shortcut > /dev/null
+          test -f "$HOME/.local/share/applications/usage-tracker.desktop" \
+            || { echo '::error::no desktop entry written'; exit 1; }
+          BROWSER=true timeout 60 python - <<'PY'
+          import json, os, re, subprocess, sys, urllib.request
+          # Tarayıcı yüzü de paketten servis ediliyor mu: sayfa, script ve jetonlu uç.
+          proc = subprocess.Popen(['./dist/usage-tracker', 'setup', '--ui'],
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, env=dict(os.environ, BROWSER='true'))
+          url = None
+          for _ in range(20):
+              line = proc.stdout.readline()
+              if not line:
+                  break
+              found = re.search(r'http://127\.0\.0\.1:\d+/wizard\.html#\S+', line)
+              if found:
+                  url = found.group(0)
+                  break
+          if not url:
+              proc.kill()
+              sys.exit('::error::the wizard never printed its address')
+          base, token = url.split('#')
+          for name in ('wizard.html', 'wizard.js', 'setup.css'):
+              code = urllib.request.urlopen(base.replace('wizard.html', name), timeout=5).status
+              print(f'  {name} -> {code}')
+          req = urllib.request.Request(base.replace('wizard.html', 'api/wizard/probe'))
+          req.add_header('X-UT-Token', token)
+          print('  api/probe ->', json.load(urllib.request.urlopen(req, timeout=5))['platform'])
+          quit_req = urllib.request.Request(base.replace('wizard.html', 'api/wizard/quit'),
+                                            method='POST', data=b'{}')
+          quit_req.add_header('Content-Type', 'application/json')
+          quit_req.add_header('X-UT-Token', token)
+          urllib.request.urlopen(quit_req, timeout=5)
+          sys.exit(proc.wait(timeout=15))
+          PY
+          ./dist/usage-tracker setup --undo shortcut > /dev/null
+          test ! -f "$HOME/.local/share/applications/usage-tracker.desktop" \
+            || { echo '::error::undo left the desktop entry behind'; exit 1; }
+          echo 'wizard: wrote and undid its own files'
 
       - uses: actions/upload-artifact@v4
         with:

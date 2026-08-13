@@ -196,6 +196,11 @@ class EveryTextFileDeclaresItsEncoding(unittest.TestCase):
 
     TEXT_CALLS = {'open', 'read_text', 'write_text'}
 
+    #: `webbrowser.open(url)` ve `os.open(fd)` metin G/Ç değildir; denetçi adlara bakıyor,
+    #: türlere değil. Bu iki modül dışlanmazsa doğru kod kırmızı yanar ve gerçek bulguları
+    #: gürültüye boğar — bir denetçinin en pahalı kusuru, güvenilirliğini kaybetmesidir.
+    NOT_FILE_IO = {'webbrowser', 'os'}
+
     def _offenders(self):
         out = []
         for path in sorted(REPO.rglob('*.py')):
@@ -209,6 +214,9 @@ class EveryTextFileDeclaresItsEncoding(unittest.TestCase):
                 name = (fn.attr if isinstance(fn, ast.Attribute)
                         else fn.id if isinstance(fn, ast.Name) else None)
                 if name not in self.TEXT_CALLS:
+                    continue
+                if (isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name)
+                        and fn.value.id in self.NOT_FILE_IO):
                     continue
                 mode = None
                 if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):

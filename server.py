@@ -22,7 +22,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import engine, settings, viewconfig   # noqa: E402
 
-VERSION = '0.2.2'                                  # tek kaynak: Server başlığı + panel rozeti
+VERSION = '0.3.0'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
 from usage import platform as _paths          # noqa: E402
@@ -295,7 +295,8 @@ class Handler(BaseHTTPRequestHandler):
 
 # CLI alt komutları (usage/cli.py). Tek giriş noktası bilinçli: donmuş paketin içinde
 # ikinci bir çalıştırılabilir yok — `usage-tracker.exe guard` çalışmak zorunda.
-CLI_COMMANDS = ('usage', 'providers', 'guard', 'watch', 'doctor', 'config')
+CLI_COMMANDS = ('usage', 'providers', 'guard', 'watch', 'doctor', 'config',
+                'setup', 'panel')
 
 
 def main(argv=None):

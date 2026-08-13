@@ -26,9 +26,19 @@ penceresinde açar — her adım ne yazacağının **gerçek diff'ini** gösteri
 
 ![kurulum sihirbazı, waybar config'ine yazacağı diff'i gösteriyor](docs/setup-wizard.png)
 
-**Windows'ta mısın?** Sihirbaz bash, işine yaramaz; panel ve CLI ikisi de çalışır.
-[`docs/WINDOWS.md`](docs/WINDOWS.md) — hangi yüzeylerin **olmadığı** ve oradaki hangi
-iddianın gerçek makinede ölçüldüğü dâhil (şimdilik: hiçbiri).
+**Windows'ta mısın?** [Releases](https://github.com/ihsandeniz/usage-tracker/releases)'tan
+`.exe`'yi indir ve kendi sihirbazını çalıştır — aynı dört adım, istersen tarayıcıda:
+
+```powershell
+.\usage-tracker.exe setup          # terminalde
+.\usage-tracker.exe setup --ui     # tarayıcıda
+.\usage-tracker.exe setup --auto   # soru sormadan
+```
+
+Programı kendi kullanıcı klasörüne kurar, oturum açılışında **konsol penceresi açmadan**
+başlatır, Başlat menüsüne kısayol koyar; `setup --uninstall` hepsini geri alır. Windows'ta
+**olmayan** yüzeyler (waybar, tepsi, yüzen widget) ve hangi iddianın gerçek makinede
+ölçüldüğü: [`docs/WINDOWS.md`](docs/WINDOWS.md).
 
 ```bash
 ./setup.sh --ui         # sihirbaz, sayfa olarak (pencere açar; URL'i her hâlükârda yazar)

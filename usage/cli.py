@@ -826,6 +826,158 @@ def cmd_doctor(args) -> int:
     return 0 if report['ok'] else 1
 
 
+# ── command: setup ────────────────────────────────────────────────────────────
+def _say(messages) -> None:
+    """Sihirbazın `"seviye|metin"` satırlarını insana bas. Biçim `setup.sh` ile aynı —
+    tarayıcı da aynı diziyi renklendiriyor, yani iki yüzey tek kaynaktan konuşuyor."""
+    marks = {'ok': '  ✓', 'info': '  ·', 'warn': '  !', 'error': '  ✗'}
+    for line in messages or []:
+        level, _, text = str(line).partition('|')
+        print(f'{marks.get(level, "  ·")} {text or level}')
+
+
+def _ask(question: str, default: bool = True) -> bool:
+    suffix = '[Y/n]' if default else '[y/N]'
+    try:
+        answer = input(f'{question} {suffix} ').strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return default if not answer else answer in ('y', 'yes', 'e', 'evet')
+
+
+def _setup_keys_interactive(wizard) -> None:
+    """Anahtar **argv'den asla** okunmaz: `/proc` üzerinden başkasına görünür ve shell
+    geçmişine düşer (`setup.sh`'ın kuralı). Terminalde `getpass`, makine modunda stdin."""
+    import getpass
+    status = {row['env']: row['set'] for row in wizard._probe_keys()['providers']}
+    print('\n  Provider keys — leave a line empty to skip it. Values are never printed back.')
+    pairs = {}
+    for name in wizard.KNOWN_KEYS:
+        mark = ' (already set)' if status.get(name) else ''
+        try:
+            value = getpass.getpass(f'    {name}{mark}: ').strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if value:
+            pairs[name] = value
+    if not pairs:
+        print('  · no keys entered')
+        return
+    _say(wizard.do('keys', {'keys': pairs}).get('messages'))
+
+
+def cmd_setup(args) -> int:
+    from . import wizard
+
+    machine = args.probe or args.preview or args.do or args.undo
+    if machine:
+        # Makine modu: stdout YALNIZ JSON. Tarayıcı arayüzü ve script'ler buradan okuyor.
+        if args.probe:
+            result = wizard.probe()
+        elif args.preview:
+            result = wizard.preview(args.preview)
+        elif args.do:
+            opts = {}
+            if args.do == 'keys':
+                names = args.set_key or []
+                values = sys.stdin.read().splitlines()
+                opts['keys'] = dict(zip(names, [v.strip() for v in values]))
+            result = wizard.do(args.do, opts)
+        else:
+            result = wizard.undo(args.undo)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get('ok', True) else EXIT_USAGE
+
+    if args.ui:
+        from . import wizard_server
+        return wizard_server.serve()
+
+    if args.uninstall:
+        print(f'usage-tracker {version()} · setup --uninstall')
+        if not args.auto and not _ask('Remove the autostart entry and the shortcut?', True):
+            print('  · nothing done')
+            return 0
+        result = wizard.uninstall()
+        for step in result['results']:
+            _say(step.get('messages'))
+        print(f"\n  Kept: your keys ({result['kept']['keys']}) and your data "
+              f"({', '.join(result['kept']['data'])}).")
+        print('  The program file itself is yours to delete.')
+        return 0 if result['ok'] else 1
+
+    state = wizard.probe()
+    print(f'usage-tracker {version()} · setup   ({state["platform"]}'
+          f'{", single-file build" if state["frozen"] else ", source checkout"})')
+    if state['setupSh']:
+        print('  Note: on Linux ./setup.sh does more than this wizard — waybar, the floating\n'
+              '  widget and the tray. This one covers what a single binary can do.')
+
+    if args.auto:
+        print('\n  Applying the recommended steps.\n')
+        result = wizard.auto()
+        for step in result['results']:
+            print(f"  {wizard.STEP_TITLES[step['step']]}")
+            _say(step.get('messages'))
+        if result['failed']:
+            print(f"\n  ✗ These steps did not succeed: {', '.join(result['failed'])}")
+        return 0 if result['ok'] else 1
+
+    for step in wizard.AUTO_STEPS:
+        print(f'\n  {wizard.STEP_TITLES[step]}')
+        for line in wizard.preview(step).get('lines', []):
+            print(f'    │ {line}' if line else '    │')
+        if step == 'verify' or _ask('  Apply this step?', True):
+            _say(wizard.do(step).get('messages'))
+        else:
+            print('  · skipped')
+
+    if _ask('\n  Add provider API keys now? (optional)', False):
+        _setup_keys_interactive(wizard)
+
+    print(f'\n  Done. The panel lives at {wizard.PANEL_URL} — `usage-tracker panel` opens it.')
+    print('  Changed your mind? `usage-tracker setup --uninstall` puts it all back.')
+    return 0
+
+
+def cmd_panel(args) -> int:
+    """Kısayolun arkasındaki komut. Tek tıkla panel demek, "sunucu ayakta mı" sorusunu
+    kullanıcıya sormamak demek: ayaktaysa tarayıcıyı aç, değilse önce sunucuyu başlat."""
+    from . import wizard
+
+    started = False
+    if not wizard.server_alive():
+        cmd = wizard.launch_command()
+        kwargs = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL,
+                  'stdin': subprocess.DEVNULL, 'env': wizard.child_env()}
+        if wizard.is_windows():
+            # Konsol penceresi açmadan ve bu süreç kapanınca ölmeden çalışsın.
+            kwargs['creationflags'] = 0x00000008 | 0x00000200   # DETACHED | NEW_PROCESS_GROUP
+        else:
+            kwargs['start_new_session'] = True
+        try:
+            subprocess.Popen(cmd, **kwargs)
+        except OSError as exc:
+            print(f'could not start the server: {exc}', file=sys.stderr)
+            return 1
+        started = True
+        for _ in range(40):
+            if wizard.server_alive(timeout=0.5):
+                break
+            time.sleep(0.25)
+
+    if not wizard.server_alive():
+        print(f'the server did not come up on {wizard.PANEL_URL}', file=sys.stderr)
+        return 1
+
+    print(f'{"started · " if started else ""}{wizard.PANEL_URL}')
+    if not args.no_open:
+        import webbrowser
+        webbrowser.open(wizard.PANEL_URL)
+    return 0
+
+
 # ── command: config ───────────────────────────────────────────────────────────
 def cmd_config(args) -> int:
     config = viewconfig.get_config()
@@ -1002,6 +1154,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_cfg.add_argument('--refresh', type=int, metavar='SEC', help="the panel's poll interval")
     p_cfg.add_argument('--json', action='store_true')
     p_cfg.set_defaults(func=cmd_config)
+
+    p_setup = subparsers.add_parser(
+        'setup', help='install, autostart, shortcut, keys — with a preview of every write',
+        description='Guided setup. Every step shows what it will write before it writes it, '
+                    'keeps a backup of anything it did not write itself, and can be undone.')
+    p_setup.add_argument('--ui', action='store_true',
+                         help='run the same steps in a browser page instead of the terminal')
+    p_setup.add_argument('--auto', action='store_true',
+                         help='apply the recommended steps without asking (never keys)')
+    p_setup.add_argument('--uninstall', action='store_true',
+                         help='undo what the wizard wrote (keys and data are kept)')
+    p_setup.add_argument('--probe', action='store_true', help='machine mode: print state as JSON')
+    p_setup.add_argument('--preview', metavar='STEP', help='machine mode: what STEP would write')
+    p_setup.add_argument('--do', metavar='STEP', help='machine mode: apply STEP')
+    p_setup.add_argument('--undo', metavar='STEP', help='machine mode: revert STEP')
+    p_setup.add_argument('--set-key', action='append', metavar='NAME',
+                         help='key to write in the keys step; the value is read from stdin')
+    p_setup.add_argument('--json', action='store_true', help='JSON instead of human output')
+    p_setup.set_defaults(func=cmd_setup)
+
+    p_panel = subparsers.add_parser(
+        'panel', help='open the panel in a browser, starting the server if needed')
+    p_panel.add_argument('--no-open', action='store_true',
+                         help='make sure the server is up, but do not open a browser')
+    p_panel.set_defaults(func=cmd_panel)
 
     return parser
 

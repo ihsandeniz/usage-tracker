@@ -34,7 +34,11 @@ a = Analysis(                                    # noqa: F821
     # `usage.cli` yalnızca `server.main()` içinde, çalışma anında import ediliyor (CLI alt
     # komutu verilmedikçe yüklenmesin diye). Analiz bunu bulur ama bulamazsa hata sessizdir:
     # paket açılır, sunucu çalışır ve `usage-tracker guard` "böyle bir komut yok" der.
-    hiddenimports=['usage.cli'],
+    # Bu üçü de çalışma anında import ediliyor (CLI alt komutu verilmedikçe yüklenmesinler
+    # diye). Analiz genelde bulur; bulamazsa hata **sessizdir**: paket açılır, sunucu çalışır
+    # ve `usage-tracker setup` "böyle bir komut yok" der. 08-12'de tam bu sınıf kusur
+    # donmuş paketten çıktı (bkz. dağıtıcı notu), o yüzden burada açıkça yazılıyorlar.
+    hiddenimports=['usage.cli', 'usage.wizard', 'usage.wizard_server'],
     hookspath=[],
     runtime_hooks=[],
     # Sıfır bağımlılık sözü ikili boyutunda da tutulsun: GUI araç setlerini ve test

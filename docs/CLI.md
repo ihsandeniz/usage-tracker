@@ -52,7 +52,7 @@ usage-tracker usage --provider openrouter
 ```
 
 ```
-usage-tracker 0.2.2 · source: server
+usage-tracker 0.3.0 · source: server
 
 Claude Code  [live]
      session         7.0%   resets in 4h32m
@@ -278,3 +278,49 @@ the panel server has none of those properties and stays up all day.
 * **Output is English** and stays English, like the rest of the terminal output in this
   repo. The panel is the localised surface (TR/EN); a CLI whose output changes shape with
   the user's language is a CLI you cannot grep.
+
+## `setup` — install it, and be able to undo that
+
+```bash
+usage-tracker setup              # question by question, in the terminal
+usage-tracker setup --ui         # the same steps as a page in your browser
+usage-tracker setup --auto       # no questions; never writes a key
+usage-tracker setup --uninstall  # remove what the wizard wrote (keys and data stay)
+```
+
+Four steps and a check: put the binary somewhere permanent, start it at logon, add a
+shortcut that opens the panel, optionally store provider keys, then run `doctor`.
+
+Two rules make it safe to try:
+
+* **It shows the file before it writes it.** `setup --preview autostart` prints the exact
+  text, path included. The browser page shows the same thing behind *Show what it writes*.
+* **It only takes back what it gave.** Every file it writes carries a marker line. `undo`
+  reads that marker: a file the wizard did not write is left alone, and — on Linux — a
+  service it did not install is never stopped. Overwriting someone else's file keeps a
+  `.bak-usage-tracker` copy, and a second run does not clobber the first backup.
+
+On Linux from a source checkout, `./setup.sh` does more (waybar, tray, the floating widget).
+This wizard is what a single binary can do, on either platform.
+
+Machine mode — the browser page and any script speak the same protocol, stdout is JSON only:
+
+```bash
+usage-tracker setup --probe            # state of every step
+usage-tracker setup --preview <step>   # what that step would write
+usage-tracker setup --do <step>        # apply it
+usage-tracker setup --undo <step>      # revert it
+```
+
+Keys are the exception to argv: `--do keys --set-key NAME` reads the value from **stdin**,
+because an argument is visible in `/proc` to every other user and lands in shell history.
+
+## `panel` — open it, starting the server if needed
+
+```bash
+usage-tracker panel            # open the browser; start the server first if nothing answers
+usage-tracker panel --no-open  # just make sure it is running
+```
+
+This is what the desktop shortcut calls. It never starts a second server: if `:8770`
+already answers, it only opens the page.
