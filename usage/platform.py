@@ -182,6 +182,32 @@ def atomic_write_text(path, text: str, encoding: str = 'utf-8') -> Path:
     return path
 
 
+def ensure_utf8_output() -> None:
+    """`→`, `◐` and `█` must not be able to kill the process.
+
+    Python writes to a real Windows console through WriteConsoleW and Unicode survives, but
+    the moment stdout is a pipe or a file it falls back to the locale code page — cp1252 on
+    an English install. The startup banner contains `→`, so the *packaged* tool died before
+    it bound the port whenever anything captured its output:
+
+        print(f'usage-tracker {VERSION} → http://…')
+        UnicodeEncodeError: 'charmap' codec can't encode character '\\u2192'
+        [PYI-6352:ERROR] Failed to execute script 'server'
+
+    Measured on windows-latest, 2026-08-13, the first time `package.yml` ever ran.
+
+    This guard already existed — inside `usage.cli.main()`, which only the *asked* surfaces
+    reach. Bare `usage-tracker` (serve) is what a Windows user runs first and it never
+    called it. It lives here now, next to the other question this module answers: what does
+    this machine do differently. Replacement characters are ugly; a traceback is worse.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:              # kapalı/yönlendirilmiş akış: çıktı asla hedef değil
+            pass
+
+
 def describe() -> dict:
     """Teşhis için: `doctor` komutu ve hata raporları bunu basar."""
     return {

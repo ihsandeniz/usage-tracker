@@ -251,6 +251,10 @@ CLI_COMMANDS = ('usage', 'providers', 'guard', 'watch', 'doctor', 'config')
 
 
 def main(argv=None):
+    # İlk satır, çünkü ilk `print`'ten önce olmak zorunda: açılış satırındaki `→` cp1252'de
+    # yok ve çıktı boruya gittiğinde paket daha portu bağlamadan çöküyordu (Windows,
+    # package.yml'in ilk koşusu). Gerekçe: usage/platform.py:ensure_utf8_output.
+    _paths.ensure_utf8_output()
     argv = sys.argv[1:] if argv is None else argv
 
     if argv and argv[0] in CLI_COMMANDS:

@@ -1009,16 +1009,11 @@ def build_parser() -> argparse.ArgumentParser:
 def _ensure_utf8_output() -> None:
     """`—`, `✓` and `¥` must not be able to kill the process.
 
-    A Windows console still defaults to a legacy code page in plenty of setups, and there
-    printing a single em dash raises UnicodeEncodeError — the tool would crash while doing
-    nothing but reporting a number. Replacement characters are ugly; a traceback is worse.
-    ⚠️ Windows'ta doğrulanmadı (makine yok) — CI yalnız test çıktısını görüyor.
+    Tek kopya `usage.platform`'a taşındı: bu koruma yalnız burada dururken çıplak
+    `usage-tracker` (sunucu) yolu korumasızdı ve Windows'ta paket açılış satırında
+    çöküyordu. Gerekçe + ölçüm orada.
     """
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding='utf-8', errors='replace')
-        except Exception:
-            pass
+    _paths.ensure_utf8_output()
 
 
 def main(argv=None) -> int:

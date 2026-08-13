@@ -10,16 +10,25 @@ Three defects, all of which only bite off this machine:
       wins with half the other's bytes.
   T4  Nothing in the codebase ever asked which platform it was on, so there was no branch
       to get wrong — and no branch to test either.
+  T5  The startup banner could not be encoded in cp1252, so the packaged tool crashed on
+      Windows before it bound the port — and the suite could not see it, because the
+      harness handed the child `PYTHONIOENCODING=utf-8`.
 
 The Windows branch is exercised here by faking the platform. That is NOT proof it works on
 Windows; it is proof the *code path* is reachable and self-consistent. Only a real
 windows-latest run (or a real machine) can say more, and this file cannot.
 """
 import ast
+import json
 import os
 import pathlib
+import socket
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
+import urllib.request
 from unittest import mock
 
 from usage import platform as up
@@ -351,6 +360,85 @@ class StdlibPlatformIsNotShadowed(unittest.TestCase):
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 self.assertNotIn('platform', [a.name for a in node.names])
+
+
+class TheEntryPointSurvivesALegacyCodePage(unittest.TestCase):
+    """T5 — the one the CI harness was hiding.
+
+    On Windows, Python only reaches the console through WriteConsoleW; the moment stdout is
+    a pipe or a file it encodes with the locale code page (cp1252). The startup banner
+    contains `→`, which cp1252 does not have, so the packaged tool raised UnicodeEncodeError
+    and exited **before binding the port** — measured on windows-latest 2026-08-13, the
+    first time `package.yml` ran. `usage --format waybar` starts with `◐` and dies the same
+    way; that command is the documented Windows feeder.
+
+    No test could see it: `tests/test_cli.py:run_cli` sets `PYTHONIOENCODING=utf-8` for the
+    child, which *is* the fix, handed to the code under test by its harness. So these run
+    the real entry points with cp1252 forced on and nothing else changed.
+
+    Forcing it works on any platform, which is the point — the bug is reproducible on Linux
+    and does not need a Windows machine to stay fixed.
+    """
+
+    def _env(self, home):
+        env = dict(os.environ)
+        env.update({'PYTHONIOENCODING': 'cp1252', 'HOME': home, 'USERPROFILE': home,
+                    'XDG_CONFIG_HOME': str(pathlib.Path(home) / 'config'),
+                    'XDG_STATE_HOME': str(pathlib.Path(home) / 'state'),
+                    'XDG_CACHE_HOME': str(pathlib.Path(home) / 'cache')})
+        env.pop('USAGE_DEMO', None)
+        return env
+
+    def _run(self, args, home):
+        return subprocess.run([sys.executable, str(REPO / 'server.py'), *args],
+                              capture_output=True, cwd=str(REPO), env=self._env(home),
+                              timeout=90)                      # bytes: decoding is our job
+
+    def test_the_server_banner_does_not_kill_the_server(self):
+        home = tempfile.mkdtemp(prefix='ut-cp1252-')
+        sock = socket.socket()
+        sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        env = self._env(home)
+        env['USAGE_PORT'] = str(port)
+        proc = subprocess.Popen([sys.executable, str(REPO / 'server.py')],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                cwd=str(REPO), env=env)
+        try:
+            deadline = time.time() + 20
+            served = False
+            while time.time() < deadline and proc.poll() is None:
+                try:
+                    with urllib.request.urlopen(
+                            f'http://127.0.0.1:{port}/v1/usage', timeout=2) as r:
+                        served = r.status == 200
+                    break
+                except Exception:
+                    time.sleep(0.4)
+            if proc.poll() is not None:
+                out, err = proc.communicate()
+                self.fail('the server died before serving on a cp1252 stdout:\n'
+                          + err.decode('utf-8', 'replace')[-800:])
+            self.assertTrue(served, 'the server never answered on 127.0.0.1')
+        finally:
+            proc.kill()
+            proc.communicate()
+
+    def test_the_waybar_feeder_still_emits_json(self):
+        home = tempfile.mkdtemp(prefix='ut-cp1252-')
+        p = self._run(['usage', '--format', 'waybar', '--local'], home)
+        self.assertEqual(p.returncode, 0, p.stderr.decode('utf-8', 'replace')[-500:])
+        payload = json.loads(p.stdout.decode('utf-8', 'replace'))
+        self.assertIn('text', payload)
+        self.assertIn('class', payload)
+
+    def test_a_mistyped_command_still_explains_itself(self):
+        """The dispatcher's message is separated with `·` — cp1252 has it, but the reply
+        travels through the same stream, so it is measured rather than assumed."""
+        p = self._run(['gaurd'], tempfile.mkdtemp(prefix='ut-cp1252-'))
+        self.assertEqual(p.returncode, 64)
+        self.assertIn('unknown command', p.stderr.decode('utf-8', 'replace'))
 
 
 if __name__ == '__main__':
