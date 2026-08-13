@@ -98,6 +98,10 @@ pre.code .hunk { color: var(--cyan-dim); }
 
 /* ── actions ── */
 .step-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 4px; }
+/* Düğme metni kutusunun içinde sarılırsa iki satır olup komşusunun üstüne biner — Türkçe
+   etiketler İngilizce'den uzun ve bu, gerçek bir makinede çekilmiş ekran görüntüsünde
+   görüldü. Satır sonu düğmeler arasında olur, düğmenin içinde değil. */
+.step-actions button { white-space: nowrap; }
 .step-actions .spacer { flex: 1; }
 .opt { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted2); cursor: pointer; }
 .opt input { accent-color: var(--cyan); width: 15px; height: 15px; cursor: pointer; }
@@ -105,6 +109,10 @@ pre.code .hunk { color: var(--cyan-dim); }
 
 /* ── key list ── */
 .keys { display: grid; gap: 7px; margin: 0 0 12px; }
+/* `hidden` niteliği `display:none` demektir ama yukarıdaki `display:grid` ondan daha
+   belirgin (specificity) — sonuç, "gizledim" denen ve ekranda duran bir form. Ölçüldü:
+   form kapalıyken sayfa 2240px'ten 2214px'e düşüyordu, yani hiç kapanmıyordu. */
+.keys[hidden] { display: none; }
 .keyrow { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px;
   background: var(--bg2); border: 1px solid var(--line); border-radius: 9px; padding: 7px 11px; }
 .keyrow .kname { font-size: 12.5px; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }

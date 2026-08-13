@@ -21,6 +21,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -36,8 +37,32 @@ IDLE_TIMEOUT = 600.0
 MAX_BODY = 8192
 WEBD = _paths.resource_dir() / 'web'
 
-STATIC = {'/': 'wizard.html', '/wizard.html': 'wizard.html',
-          '/wizard.js': 'wizard.js', '/setup.css': 'setup.css'}
+PAGE = 'wizard.html'
+_ASSET = re.compile(r'(?:href|src)="/([A-Za-z0-9._-]+)"')
+
+
+def _static_map() -> dict:
+    """Servis edilecek dosyalar **sayfanın kendisinden** okunur, elle yazılmaz.
+
+    🔴 Elle yazılmıştı ve `/styles.css` listede yoktu: sihirbaz sayfası 404 aldı, `setup.css`
+    içindeki 40 `var(--…)` tanımsız kaldı ve kullanıcı — gerçek bir Windows makinesinde,
+    2026-08-13 — kurulum sihirbazı yerine **stilsiz ham HTML** gördü. Sayfa çalışıyordu;
+    kurulum arayüzüne benzemiyordu.
+
+    CI de kaçırmıştı, aynı sebeple: kontrol listesi de elle yazılmıştı (`wizard.html`,
+    `wizard.js`, `setup.css` → üçü de 200). İki liste aynı eksikliği paylaşınca, ölçüm
+    kusuru göremez. Artık tek kaynak var: sayfanın `href`/`src` nitelikleri.
+    """
+    page = WEBD / PAGE
+    served = {'/': PAGE, f'/{PAGE}': PAGE}
+    try:
+        html = page.read_text(encoding='utf-8')
+    except OSError:
+        return served
+    for name in _ASSET.findall(html):
+        if (WEBD / name).is_file():
+            served[f'/{name}'] = name
+    return served
 MIME = {'.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8',
         '.css': 'text/css; charset=utf-8'}
 
@@ -121,10 +146,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, wizard.preview(path.rsplit('/', 1)[-1]))
             return
 
-        if path in STATIC:
+        static = _static_map()
+        if path in static:
             if not self._guard(need_token=False):
                 return
-            fp = WEBD / STATIC[path]
+            fp = WEBD / static[path]
             if not fp.is_file():
                 self._json(404, {'ok': False, 'error': f'missing {fp.name}'})
                 return

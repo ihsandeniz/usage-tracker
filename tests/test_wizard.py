@@ -436,6 +436,112 @@ class TheMachineInterface(_Sandbox):
         self.assertFalse(wizard.installed_binary().exists())
 
 
+class ThePageArrivesDressed(_Sandbox):
+    """🔴 Sihirbaz açıldı ve **kurulum sihirbazına benzemiyordu.**
+
+    Gerçek bir Windows makinesinde, 2026-08-13: sayfa geldi, JavaScript çalıştı, adımlar
+    listelendi — ama `/styles.css` sunucunun listesinde olmadığı için 404 döndü,
+    `setup.css`'teki 40 `var(--…)` tanımsız kaldı ve kullanıcı tarayıcı varsayılanlarıyla
+    çizilmiş ham HTML gördü. "Çalışıyor" ile "kurulum arayüzü gibi görünüyor" aynı şey değil.
+
+    CI de kaçırdı: kontrol listesi de **elle** yazılmıştı ve aynı dosyayı unutuyordu. İki
+    liste aynı eksikliği paylaşırsa ölçüm kusuru göremez. Bu yüzden buradaki iddia sabit bir
+    liste değil: **sayfanın kendi `href`/`src` referansları** üzerinden koşuyor.
+    """
+
+    def _serve(self):
+        import http.server
+        import threading
+        from usage import wizard_server as ws
+        srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), ws.Handler)
+        port = srv.server_address[1]
+        srv.allowed_hosts = {f'127.0.0.1:{port}'}
+        srv.allowed_origins = {f'http://127.0.0.1:{port}'}
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        return port
+
+    def test_every_asset_the_page_asks_for_is_served(self):
+        import re
+        import urllib.request
+        from usage import wizard_server as ws
+
+        html = (ws.WEBD / ws.PAGE).read_text(encoding='utf-8')
+        wanted = re.findall(r'(?:href|src)="(/[^"]+)"', html)
+        self.assertTrue(wanted, 'the page references nothing — the test would prove nothing')
+
+        port = self._serve()
+        missing = []
+        for path in wanted:
+            try:
+                with urllib.request.urlopen(f'http://127.0.0.1:{port}{path}', timeout=5) as r:
+                    if r.status != 200 or not r.read():
+                        missing.append(f'{path} -> {r.status}')
+            except urllib.error.HTTPError as exc:
+                missing.append(f'{path} -> {exc.code}')
+        self.assertEqual(missing, [],
+                         'the wizard page would render undressed: ' + ', '.join(missing))
+
+    def test_the_stylesheet_that_defines_the_variables_is_among_them(self):
+        """`setup.css` tek başına yetmez — renkler, yazı tipi ve kutu ölçüleri `styles.css`'te
+        tanımlı. Onsuz sayfa teknik olarak 'çalışır' ve kullanıcıya bozuk görünür."""
+        from usage import wizard_server as ws
+        served = ws._static_map()
+        self.assertIn('/styles.css', served)
+        self.assertIn('/setup.css', served)
+        variables = (ws.WEBD / 'setup.css').read_text(encoding='utf-8').count('var(--')
+        self.assertGreater(variables, 0)
+
+    def test_only_files_the_page_names_are_reachable(self):
+        """Listeyi sayfadan türetmek, sunucuyu `web/` klasörünün tamamına açmak demek değil."""
+        from usage import wizard_server as ws
+        served = ws._static_map()
+        self.assertNotIn('/index.html', served)
+        self.assertNotIn('/app.js', served)
+
+
+class TheClassesItUsesExist(_Sandbox):
+    """Sayfa doğru dosyaları yüklese bile, var olmayan (ya da yanlış) bir sınıf adı onu
+    yine bozuk gösterir.
+
+    İki kusur bu turda tam olarak buradan çıktı: `wizard.js` metin düğmelerine `.ghost`
+    veriyordu — `.ghost`, `styles.css`'te **34×34 bir ikon düğmesidir** ve hover'da 90° döner
+    (⟳ için tasarlanmış) → Türkçe etiketler kutudan taştı ve düğmeler üst üste bindi. Doğru
+    sınıf `.txtbtn`'dı. Bu test, kullanılan her sınıfın yüklenen stil dosyalarında **tanımlı**
+    olduğunu ölçer; nasıl göründüğünü değil, tanımsız olmadığını.
+    """
+
+    def _classes_used(self):
+        import re
+        from usage import wizard_server as ws
+        js = (ws.WEBD / 'wizard.js').read_text(encoding='utf-8')
+        html = (ws.WEBD / ws.PAGE).read_text(encoding='utf-8')
+        used = set()
+        for match in re.findall(r"el\('[a-z]+', '([a-z0-9 ._-]+)'", js):
+            used.update(part for part in match.split() if part and not part.startswith('.'))
+        for match in re.findall(r'class="([a-z0-9 _-]+)"', html):
+            used.update(match.split())
+        return used
+
+    def test_every_class_is_defined_in_the_stylesheets_the_page_loads(self):
+        from usage import wizard_server as ws
+        css = ''
+        for name in ('styles.css', 'setup.css'):
+            css += (ws.WEBD / name).read_text(encoding='utf-8')
+        undefined = sorted(c for c in self._classes_used() if f'.{c}' not in css)
+        self.assertEqual(undefined, [],
+                         'the page uses classes nothing defines: ' + ', '.join(undefined))
+
+    def test_text_buttons_do_not_borrow_the_icon_button(self):
+        """`.ghost` sabit genişlikli ve dönen bir ikon düğmesi; içine metin koymak onu
+        bozar. Topbar'daki ⟳ meşru kullanıcısıdır, adım düğmeleri değil."""
+        import re
+        from usage import wizard_server as ws
+        js = (ws.WEBD / 'wizard.js').read_text(encoding='utf-8')
+        offenders = re.findall(r"el\('button', 'ghost'[^)]*\)", js)
+        self.assertEqual(offenders, [], 'a text button is using the icon-button class')
+
+
 class TheFirstRunOpensTheWizard(_Sandbox):
     """🔴 Turun kaynağı: ihsan `.exe`'yi gerçek bir Windows makinesinde **çift tıkladı**,
     siyah bir pencere açıldı ve orada kaldı. Sunucu çalışıyordu; tarayıcı açılmıyordu,

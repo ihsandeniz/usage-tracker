@@ -42,6 +42,8 @@ Program çalışınca **siyah bir pencere** açılır (bu normaldir, program ora
 **tarayıcında kurulum sayfası kendiliğinden açılır**. Sayfanın sağ üstündeki **TR/EN**
 düğmesiyle dili değiştirebilirsin.
 
+![kurulum sihirbazı — Türkçe](wizard-tr.png)
+
 Sihirbaz dört şey soruyor. Hepsi isteğe bağlı, hepsi geri alınabilir:
 
 | Adım | Ne yapar | Önerim |
@@ -51,8 +53,8 @@ Sihirbaz dört şey soruyor. Hepsi isteğe bağlı, hepsi geri alınabilir:
 | **Panel kısayolu** | Başlat menüsüne "usage-tracker" ekler | ✅ Evet |
 | **API anahtarları** | OpenRouter gibi *dış* servisler için | ⏭️ Şimdilik atla — Claude kullanımı için **anahtar gerekmez** |
 
-Her adımda **"Ne yazacağını göster"** düğmesi var: dosyanın tam yolunu ve içeriğini,
-yazılmadan önce gösterir. Beğenmediğin bir adımı **"Geri al"** ile aynı sayfadan geri
+Her adımda **"Ne yazar?"** düğmesi var: dosyanın tam yolunu ve içeriğini, yazılmadan
+önce gösterir. Beğenmediğin bir adımı **"Geri al"** ile aynı sayfadan geri
 alabilirsin.
 
 Bitince **"Bitir"** de. Sihirbaz kapanır, panel açılır. Kurulum bitti.
@@ -75,7 +77,7 @@ Bitince **"Bitir"** de. Sihirbaz kapanır, panel açılır. Kurulum bitti.
 
 Bu **eski sürümlerin** davranışıydı ve düzeltildi. `v0.4.0` ve üstünde tarayıcı
 kendiliğinden açılır. Sürümünü kontrol et: siyah pencerenin ilk satırında yazıyor
-(`usage-tracker 0.4.0 → http://127.0.0.1:8770`).
+(`usage-tracker 0.4.1 → http://127.0.0.1:8770`).
 
 Tarayıcın yine de açılmadıysa, o pencerede yazan adresi kendin yaz: **http://127.0.0.1:8770**
 

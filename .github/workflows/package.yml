@@ -372,9 +372,15 @@ jobs:
               proc.kill()
               sys.exit('::error::the wizard never printed its address')
           base, token = url.split('#')
-          for name in ('wizard.html', 'wizard.js', 'setup.css'):
-              code = urllib.request.urlopen(base.replace('wizard.html', name), timeout=5).status
-              print(f'  {name} -> {code}')
+          # Varlık listesi **sayfadan** türetilir. Elle yazıldığında `/styles.css` unutuldu ve
+          # kullanıcı stilsiz ham HTML gördü; CI göremedi çünkü onun listesi de aynı eksikti.
+          page = urllib.request.urlopen(base, timeout=5).read().decode('utf-8')
+          assets = re.findall(r'(?:href|src)="(/[^"]+)"', page)
+          if not assets:
+              sys.exit('::error::the wizard page references no assets — check would prove nothing')
+          for asset in assets:
+              code = urllib.request.urlopen(base.replace('/wizard.html', asset), timeout=5).status
+              print(f'  {asset} -> {code}')
           req = urllib.request.Request(base.replace('wizard.html', 'api/wizard/probe'))
           req.add_header('X-UT-Token', token)
           print('  api/probe ->', json.load(urllib.request.urlopen(req, timeout=5))['platform'])

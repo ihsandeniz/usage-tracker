@@ -27,8 +27,9 @@ const I18N = {
     doneBody: 'Closing shuts the wizard down — the panel keeps running. It also closes ' +
               'itself after 10 idle minutes.',
     footPanel: 'panel', footUndo: 'undo everything',
-    apply: 'Apply', undo: 'Undo', preview: 'Show what it writes', hide: 'Hide',
+    apply: 'Apply', undo: 'Undo', preview: 'What it writes', hide: 'Hide',
     working: 'working…', done: 'done', failed: 'did not work',
+    keysOpen: 'Add keys',
     keysTitle: 'Keys are stored by name; values are never shown back to you.',
     keysSave: 'Save keys', keysEmpty: 'Leave a field empty to skip it.',
     lost: 'wizard closed — this page is no longer connected',
@@ -47,8 +48,9 @@ const I18N = {
     doneBody: 'Kapatmak sihirbazı durdurur — panel çalışmaya devam eder. 10 dakika boşta ' +
               'kalırsa da kendini kapatır.',
     footPanel: 'panel', footUndo: 'hepsini geri al',
-    apply: 'Uygula', undo: 'Geri al', preview: 'Ne yazacağını göster', hide: 'Gizle',
+    apply: 'Uygula', undo: 'Geri al', preview: 'Ne yazar?', hide: 'Gizle',
     working: 'çalışıyor…', done: 'tamam', failed: 'olmadı',
+    keysOpen: 'Anahtar ekle',
     keysTitle: 'Anahtarlar adıyla saklanır; değerleri sana geri gösterilmez.',
     keysSave: 'Anahtarları kaydet', keysEmpty: 'Boş bıraktığın alan atlanır.',
     lost: 'sihirbaz kapandı — bu sayfa artık bağlı değil',
@@ -120,12 +122,14 @@ function el(tag, cls, text) {
 
 function statusOf(id, probe) {
   const s = probe[id] || {};
+  const tr = state.lang === 'tr';
   if (id === 'install') return s.frozen ? (s.installed ? t('already') : t('notSet'))
-                                        : 'source checkout';
+                                        : (tr ? 'kaynaktan' : 'source checkout');
   if (id === 'autostart') return s.enabled ? t('already') : t('notSet');
   if (id === 'shortcut') return s.exists ? t('already') : t('notSet');
   if (id === 'keys') return `${(s.set || []).length}/${(s.known || []).length} ${t('set')}`;
-  if (id === 'verify') return s.server ? 'server up' : 'server not running';
+  if (id === 'verify') return s.server ? (tr ? 'sunucu ayakta' : 'server up')
+                                       : (tr ? 'sunucu kapalı' : 'server not running');
   return '';
 }
 
@@ -177,18 +181,24 @@ function keysForm(step, log) {
 
 function renderStep(def, index) {
   const [title, desc] = stepText(def.id);
-  const li = el('li', 'step');
+  const done = isDone(def.id);
+  // Yapı `setup.css`'in beklediğinin AYNISI olmak zorunda: `.step` iki sütunlu bir grid
+  // (`40px 1fr`) ve tam iki çocuk bekliyor — numara ve gövde. İlk sürüm başlığı da doğrudan
+  // `.step` içine koyuyordu; sonuç, gerçek bir Windows makinesinde çekilen ekran
+  // görüntüsündeki gibi **üst üste binen** başlık, açıklama ve düğmelerdi. Stili başka bir
+  // sayfadan ödünç almak, o sayfanın DOM'unu da ödünç almak demek.
+  const li = el('li', 'step' + (done ? ' is-done' : ''));
+  li.appendChild(el('div', 'step-num', String(index + 1)));
 
+  const body = el('div', 'card step-body');
   const head = el('div', 'step-head');
-  head.appendChild(el('span', 'step-num', String(index + 1)));
   head.appendChild(el('h3', null, title));
-  head.appendChild(el('span', 'pill', statusOf(def.id, state.probe)));
-  li.appendChild(head);
-
-  const body = el('div', 'step-body');
+  head.appendChild(el('span', 'pill ' + (done ? 'good' : 'off'), statusOf(def.id, state.probe)));
+  body.appendChild(head);
   body.appendChild(el('p', 'step-desc', desc));
 
   const log = el('div', 'step-log');
+  log.dataset.log = def.id;
   const pre = el('pre', 'code');
   pre.hidden = true;
 
@@ -203,13 +213,13 @@ function renderStep(def, index) {
       const res = await api('/api/wizard/do', { method: 'POST', body: { step: def.id } });
       renderMessages(log, res.messages);
       apply.disabled = false;
-      await probe();
+      await probe(log, def.id);
     });
     actions.appendChild(apply);
   }
 
   if (def.id !== 'verify' && def.id !== 'keys') {
-    const show = el('button', 'ghost', t('preview'));
+    const show = el('button', 'txtbtn', t('preview'));
     show.addEventListener('click', async () => {
       if (!pre.hidden) { pre.hidden = true; show.textContent = t('preview'); return; }
       const res = await api(`/api/wizard/preview/${encodeURIComponent(def.id)}`);
@@ -221,23 +231,44 @@ function renderStep(def, index) {
   }
 
   if (def.id !== 'verify') {
-    const undo = el('button', 'ghost', t('undo'));
+    const undo = el('button', 'txtbtn', t('undo'));
     undo.addEventListener('click', async () => {
       undo.disabled = true;
       const res = await api('/api/wizard/undo', { method: 'POST', body: { step: def.id } });
       renderMessages(log, res.messages);
       undo.disabled = false;
-      await probe();
+      await probe(log, def.id);
     });
     actions.appendChild(undo);
   }
 
   body.appendChild(actions);
   body.appendChild(pre);
-  if (def.id === 'keys') body.appendChild(keysForm(def, log));
+  if (def.id === 'keys') {
+    // İsteğe bağlı bir adım ekranın yarısını kaplamamalı: 9 sağlayıcı alanı açıkken sihirbaz
+    // "doldurulacak bir form" gibi görünüyordu, oysa çoğu kullanıcı buraya hiç dokunmayacak.
+    const open = el('button', 'txtbtn', t('keysOpen'));
+    const form = keysForm(def, log);
+    form.hidden = true;
+    open.addEventListener('click', () => {
+      form.hidden = !form.hidden;
+      open.textContent = form.hidden ? t('keysOpen') : t('hide');
+    });
+    actions.insertBefore(open, actions.firstChild);
+    body.appendChild(form);
+  }
   body.appendChild(log);
   li.appendChild(body);
   return li;
+}
+
+function isDone(id) {
+  const s = (state.probe || {})[id] || {};
+  if (id === 'install') return !!s.installed || s.frozen === false;
+  if (id === 'autostart') return !!s.enabled;
+  if (id === 'shortcut') return !!s.exists;
+  if (id === 'keys') return (s.set || []).length > 0;
+  return false;
 }
 
 function render() {
@@ -252,6 +283,9 @@ function render() {
   document.getElementById('auto-all').textContent =
     state.lang === 'tr' ? 'Önerilen kurulumu yap' : 'Set up the recommended parts';
   document.getElementById('lang').textContent = state.lang === 'tr' ? 'EN' : 'TR';
+  document.getElementById('finish').textContent =
+    state.lang === 'tr' ? 'Bitir ve kapat' : 'Finish & close';
+  document.documentElement.lang = state.lang;
   document.getElementById('panel-url').textContent = p.panelUrl;
   document.getElementById('machine').textContent =
     `${p.platform}${p.frozen ? ' · single-file build' : ' · source checkout'} — ${p.binary}`;
@@ -261,9 +295,20 @@ function render() {
   (p.steps || []).forEach((def, i) => list.appendChild(renderStep(def, i)));
 }
 
-async function probe() {
+async function probe(keepLog, keepStep) {
+  const carried = keepLog ? keepLog.innerHTML : null;
   const p = await api('/api/wizard/probe');
-  if (p && p.ok) { state.probe = p; setConn(''); render(); }
+  if (p && p.ok) {
+    state.probe = p;
+    setConn('');
+    render();
+    // Yeniden çizim, kullanıcının az önce okuduğu sonucu silmemeli: "Uygula"ya basınca
+    // mesaj bir an görünüp kaybolursa, geriye yalnız değişmiş bir rozet kalır.
+    if (carried && keepStep) {
+      const box = document.querySelector(`[data-log="${keepStep}"]`);
+      if (box) box.innerHTML = carried;
+    }
+  }
 }
 
 document.getElementById('refresh').addEventListener('click', probe);

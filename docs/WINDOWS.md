@@ -43,6 +43,8 @@ A **black console window** appears (that is normal — the program lives there) 
 setup page opens in your browser on its own**. The **TR/EN** button in the top right
 switches languages.
 
+![the setup wizard](wizard-en.png)
+
 The wizard asks about four things. All optional, all undoable:
 
 | Step | What it does | Suggested |
@@ -52,7 +54,7 @@ The wizard asks about four things. All optional, all undoable:
 | **Panel shortcut** | Adds "usage-tracker" to the Start menu | ✅ Yes |
 | **API keys** | Only for *hosted* providers like OpenRouter | ⏭️ Skip for now — Claude usage needs **no key** |
 
-Every step has a **"Show what it writes"** button: it prints the exact path and the exact
+Every step has a **"What it writes"** button: it prints the exact path and the exact
 contents before anything is written. Any step can be reversed with **"Undo"** from the same
 page.
 
@@ -77,7 +79,7 @@ whole installation.
 
 That was the behaviour of **older versions**, and it is fixed. From `v0.4.0` on, the browser
 opens by itself. Check your version: it is the first line in the black window
-(`usage-tracker 0.4.0 → http://127.0.0.1:8770`).
+(`usage-tracker 0.4.1 → http://127.0.0.1:8770`).
 
 If your browser still does not open, type the address from that window yourself:
 **http://127.0.0.1:8770**
