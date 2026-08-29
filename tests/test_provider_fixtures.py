@@ -17,21 +17,123 @@ Yalıtım: tmp_path HOME, monkeypatch env/URL, urllib.request.urlopen mock'lanm�
 module-level sabitler `monkeypatch.setattr()` ile geçici yola çevrilmiş.
 """
 
+import functools
+import inspect
 import json
+import os
 import socket
 import sys
 import tempfile
 import threading
+import unittest
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
-
-import pytest
 
 from usage.providers import (
     aider, cody, codex, continuedev, deepinfra, deepseek, elevenlabs,
     huggingface, jan, lmstudio, novita, ollama, openai, openrouter, together, windsurf,
 )
+
+
+# ============================================================================
+# pytest FIXTURE'LARININ STDLIB KARŞILIĞI
+#
+# CI `python -m unittest discover` koşuyor ve pytest KURULU DEĞİL — bu proje
+# sıfır bağımlılık sözü veriyor, test tarafında da. Bu dosya ilk hâlinde
+# `import pytest` yazıyordu; yerelde pytest kurulu olduğu için 395 test yeşil
+# göründü, CI'da tek satır `ModuleNotFoundError` ile düştü.
+#
+# Ders bu projede kayıtlı: **çalıştırdığın koşucu CI'nınkinden farklıysa,
+# ölçtüğün şey CI değildir.** (Aynı sınıf: `python -m usage.cli` dağıtıcıyı
+# atlıyordu ve donmuş paketteki kusur birim testlerinden kaçmıştı, 2026-08-12.)
+#
+# Aşağısı `monkeypatch` ve `tmp_path`in ihtiyaç duyulan yüzeyini stdlib ile
+# verir; test gövdelerinin tek satırı değişmez.
+# ============================================================================
+
+class _MonkeyPatch:
+    """`monkeypatch`in bu dosyada kullanılan üç yüzeyi: setenv · delenv · setattr.
+
+    Her değişiklik geri alınabilir kaydedilir ve `undo()` ile TERS sırada geri
+    sarılır — aynı hedefi iki kez yamalayan bir test, ilk hâline dönmeli.
+    """
+
+    _MISSING = object()
+
+    def __init__(self):
+        self._undo = []
+
+    def setenv(self, name, value):
+        self._undo.append(('env', name, os.environ.get(name, self._MISSING)))
+        os.environ[name] = str(value)
+
+    def delenv(self, name, raising=True):
+        if name not in os.environ:
+            if raising:
+                raise KeyError(name)
+            return
+        self._undo.append(('env', name, os.environ[name]))
+        del os.environ[name]
+
+    def setattr(self, target, name, value):
+        self._undo.append(('attr', (target, name),
+                           getattr(target, name, self._MISSING)))
+        setattr(target, name, value)
+
+    def undo(self):
+        while self._undo:
+            kind, key, old = self._undo.pop()
+            if kind == 'env':
+                if old is self._MISSING:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = old
+            else:
+                target, name = key
+                if old is self._MISSING:
+                    try:
+                        delattr(target, name)
+                    except AttributeError:
+                        pass
+                else:
+                    setattr(target, name, old)
+
+
+class FixtureCase(unittest.TestCase):
+    """`monkeypatch` / `tmp_path` isteyen test metotlarına onları enjekte eder.
+
+    Alt sınıf tanımlanırken `test_*` metotlarının imzasına bakılır; pytest'in
+    yaptığı işin bu dosya için gereken kadarı. Böylece 80 test gövdesi olduğu
+    gibi kalır ve dosya hem `unittest discover` hem `pytest` altında koşar.
+    """
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for name, fn in list(vars(cls).items()):
+            if name.startswith('test_') and callable(fn):
+                setattr(cls, name, cls._inject(fn))
+
+    @staticmethod
+    def _inject(fn):
+        wanted = [p for p in ('monkeypatch', 'tmp_path')
+                  if p in inspect.signature(fn).parameters]
+        if not wanted:
+            return fn
+
+        @functools.wraps(fn)
+        def wrapper(self):
+            available = {'monkeypatch': self.monkeypatch, 'tmp_path': self.tmp_path}
+            return fn(self, **{k: available[k] for k in wanted})
+        return wrapper
+
+    def setUp(self):
+        super().setUp()
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        self.tmp_path = Path(tmpdir.name)
+        self.monkeypatch = _MonkeyPatch()
+        self.addCleanup(self.monkeypatch.undo)
 
 
 # ============================================================================
@@ -136,7 +238,7 @@ def validate_card(card, expected_kind=None, must_available=True):
 # OPENROUTER TESTLERI
 # ============================================================================
 
-class TestOpenRouter:
+class TestOpenRouter(FixtureCase):
     """OpenRouter adaptörü — HTTP API, env key, spend kind."""
 
     def test_openrouter_success(self, monkeypatch, tmp_path):
@@ -228,7 +330,7 @@ class TestOpenRouter:
 # OPENAI TESTLERI
 # ============================================================================
 
-class TestOpenAI:
+class TestOpenAI(FixtureCase):
     """OpenAI adaptörü — HTTP API, admin key, spend kind."""
 
     def test_openai_success(self, monkeypatch, tmp_path):
@@ -305,7 +407,7 @@ class TestOpenAI:
 # DEEPSEEK TESTLERI
 # ============================================================================
 
-class TestDeepSeek:
+class TestDeepSeek(FixtureCase):
     """DeepSeek adaptörü — HTTP API, env key, spend kind."""
 
     def test_deepseek_success(self, monkeypatch, tmp_path):
@@ -394,7 +496,7 @@ class TestDeepSeek:
 # TOGETHER TESTLERI
 # ============================================================================
 
-class TestTogether:
+class TestTogether(FixtureCase):
     """Together AI adaptörü — HTTP API, anahtar doğrulama sadece."""
 
     def test_together_success(self, monkeypatch, tmp_path):
@@ -454,7 +556,7 @@ class TestTogether:
 # NOVITA TESTLERI
 # ============================================================================
 
-class TestNovita:
+class TestNovita(FixtureCase):
     """Novita AI adaptörü — HTTP API, kredi bakiyesi."""
 
     def test_novita_no_key(self, monkeypatch, tmp_path):
@@ -526,7 +628,7 @@ class TestNovita:
 # DEEPINFRA TESTLERI
 # ============================================================================
 
-class TestDeepInfra:
+class TestDeepInfra(FixtureCase):
     """DeepInfra adaptörü — HTTP API, kredi bakiyesi."""
 
     def test_deepinfra_no_key(self, monkeypatch, tmp_path):
@@ -599,7 +701,7 @@ class TestDeepInfra:
 # HUGGINGFACE TESTLERI
 # ============================================================================
 
-class TestHuggingFace:
+class TestHuggingFace(FixtureCase):
     """HuggingFace adaptörü — HTTP API, kota (quota)."""
 
     def test_huggingface_no_key(self, monkeypatch, tmp_path):
@@ -679,7 +781,7 @@ class TestHuggingFace:
 # ELEVENLABS TESTLERI
 # ============================================================================
 
-class TestElevenLabs:
+class TestElevenLabs(FixtureCase):
     """ElevenLabs adaptörü — HTTP API, karakter kotası (quota)."""
 
     def test_elevenlabs_no_key(self, monkeypatch, tmp_path):
@@ -760,7 +862,7 @@ class TestElevenLabs:
 # OLLAMA TESTLERI
 # ============================================================================
 
-class TestOllama:
+class TestOllama(FixtureCase):
     """Ollama adaptörü — local HTTP API, binary check, kind='local'."""
 
     def test_ollama_success(self, monkeypatch, tmp_path):
@@ -844,7 +946,7 @@ class TestOllama:
 # LM STUDIO TESTLERI
 # ============================================================================
 
-class TestLMStudio:
+class TestLMStudio(FixtureCase):
     """LM Studio adaptörü — local HTTP API, binary check."""
 
     def test_lmstudio_success(self, monkeypatch, tmp_path):
@@ -924,7 +1026,7 @@ class TestLMStudio:
 # JAN TESTLERI
 # ============================================================================
 
-class TestJan:
+class TestJan(FixtureCase):
     """Jan adaptörü — local HTTP API, directory check."""
 
     def test_jan_success(self, monkeypatch, tmp_path):
@@ -1003,7 +1105,7 @@ class TestJan:
 # CODEX TESTLERI
 # ============================================================================
 
-class TestCodex:
+class TestCodex(FixtureCase):
     """Codex adaptörü — dosya okuma, rollout-*.jsonl, limits bloğu."""
 
     def test_codex_success(self, monkeypatch, tmp_path):
@@ -1132,7 +1234,7 @@ class TestCodex:
 # AIDER TESTLERI
 # ============================================================================
 
-class TestAider:
+class TestAider(FixtureCase):
     """Aider adaptörü — dosya okuma, lokal-log."""
 
     def test_aider_success(self, monkeypatch, tmp_path):
@@ -1216,7 +1318,7 @@ class TestAider:
 # CONTINUEDEV TESTLERI
 # ============================================================================
 
-class TestContinueDev:
+class TestContinueDev(FixtureCase):
     """Continue.dev adaptörü — dosya okuma, lokal-log."""
 
     def test_continuedev_success(self, monkeypatch, tmp_path):
@@ -1293,7 +1395,7 @@ class TestContinueDev:
 # CODY TESTLERI
 # ============================================================================
 
-class TestCody:
+class TestCody(FixtureCase):
     """Cody adaptörü — dosya okuma, lokal-log."""
 
     def test_cody_success(self, monkeypatch, tmp_path):
@@ -1369,7 +1471,7 @@ class TestCody:
 # WINDSURF TESTLERI
 # ============================================================================
 
-class TestWindsurf:
+class TestWindsurf(FixtureCase):
     """Windsurf adaptörü — dosya okuma, lokal-log."""
 
     def test_windsurf_success(self, monkeypatch, tmp_path):
@@ -1440,4 +1542,4 @@ class TestWindsurf:
 
 
 if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+    unittest.main(verbosity=2)
