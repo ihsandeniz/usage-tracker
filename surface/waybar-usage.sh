@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # waybar custom module feeder — usage-tracker /v1/usage → waybar JSON.
-# Headline = highest Claude limit % (how close you are to the wall).
+# Headline = the highest limit % of the chosen provider (how close you are to the wall).
 # Standalone — the badge works on its own. Install (add to waybar config.jsonc):
 #   "custom/usage": {
 #     "exec": "/ABS/PATH/surface/waybar-usage.sh",
@@ -8,7 +8,24 @@
 #     "on-click": "/ABS/PATH/surface/usage-widget toggle"
 #   }
 # then add "custom/usage" to a modules list.  style.css: #custom-usage.crit {...}
+#
+# A SECOND badge for another provider — same script, one flag:
+#   "custom/usage-codex": { "exec": "/ABS/PATH/surface/waybar-usage.sh --provider codex", ... }
+# Any card that publishes Claude's `limits` shape drives a badge; nothing here knows the
+# provider's name. The tooltip always shows every card, whichever one drives the headline.
 set -u
+
+PROVIDER=claude
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --provider) PROVIDER="${2:-claude}"; shift 2 ;;
+    --provider=*) PROVIDER="${1#*=}"; shift ;;
+    -h|--help)
+      printf 'usage: waybar-usage.sh [--provider ID]\n  ID: claude (default), codex, openrouter, …\n'
+      exit 0 ;;
+    *) shift ;;
+  esac
+done
 
 SELF_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 CONF="$SELF_DIR/surface.conf"
@@ -35,7 +52,7 @@ fi
 
 # Generic zenginleştirilmiş tooltip — tüm sağlayıcılar üzerinde döngü
 # Kritik: opsiyonel alan erişiminde //null guard + select(.) kullan → boş stream hiç output vermez
-echo "$json" | jq -c '
+echo "$json" | jq -c --arg pid "$PROVIDER" '
   def money(v; curr):
     if v == null then "—"
     else
@@ -74,10 +91,31 @@ echo "$json" | jq -c '
   # the 400% it replaced. Unknown shows "—" and stays grey.
   def num(p): if p == null then "—" else ((p | roundHalfUp)|tostring) + "%" end;
 
+  # Claude şeklindeki bir `limits` bloğunu tooltip satırlarına çevir. Anahtar kartın ADI
+  # değil ALANI: bu şekli yayınlayan her sağlayıcı (Codex) aynı satırları alır.
+  # ⚠️ `((x) // null) as $b` bilinçli: `x as $b` boş akımda gövdeyi SIFIR kez çalıştırır
+  # ve tüm çıktıyı sessizce yutar (ledger: jq/empty-stream-as).
+  def limline(bar; $label; $th):
+    ((bar) // null) as $b
+    | if $b == null then ""
+      else "\n  " + cbar($b.pct; $th) + " " + $label + " " + cpct($b.pct; $th)
+           + rst($b.resetInSec)
+           + (if ($b.expired // false) then "  <span color=\"#8fb6d6\">↺ pencere sıfırlandı</span>" else "" end)
+      end;
+  def limbars(lim; $th):
+    ((lim) // null) as $l
+    | if $l == null then ""
+      else limline($l.session; "session"; $th) + limline($l.weekly; "weekly "; $th)
+      end;
+
   (.thresholds // { warn: 75, crit: 90 }) as $th
-  | (.providers[] | select(.id == "claude")) as $claude
-  | ($claude.limits.session.pct) as $sess_raw
-  | ($claude.limits.weekly.pct)  as $week_raw
+  | (([.providers[] | select(.id == "claude")][0]) // null) as $claude
+  # Rozeti süren kart: istenen saglayici. Yoksa Claude karti devralir — bir yazim hatasi
+  # ("--provider codx") bos bir rozet degil, calisan varsayilani gostersin.
+  # (Bu blok tek tirnakli bir kabuk dizesi: kesme isareti dizeyi KAPATIR, o yuzden yok.)
+  | (([.providers[] | select(.id == $pid)][0]) // $claude) as $lead
+  | ($lead.limits.session.pct) as $sess_raw
+  | ($lead.limits.weekly.pct)  as $week_raw
   | ($sess_raw // 0) as $sess_pct
   | ($week_raw // 0) as $week_pct
   | ([$sess_pct, $week_pct] | max) as $hi_pct
@@ -86,9 +124,12 @@ echo "$json" | jq -c '
 
   # Claude — bar + reset countdown + forecast
   | (
+      # DIKKAT: $sess_pct/$week_pct artik MANSETI suren karta ait ($lead). Claude bolumu
+      # kendi sayilarini okumak zorunda — aksi halde `--provider codex`, Claude basliginin
+      # altina Codex yuzdesini yazardi.
       "<b>Claude</b>"
-      + "\n  " + cbar($sess_pct; $th) + " session " + cpct($sess_pct; $th) + rst($claude.limits.session.resetInSec)
-      + "\n  " + cbar($week_pct; $th) + " weekly  " + cpct($week_pct; $th) + rst($claude.limits.weekly.resetInSec)
+      + "\n  " + cbar(($claude.limits.session.pct // 0); $th) + " session " + cpct($claude.limits.session.pct; $th) + rst($claude.limits.session.resetInSec)
+      + "\n  " + cbar(($claude.limits.weekly.pct // 0); $th) + " weekly  " + cpct($claude.limits.weekly.pct; $th) + rst($claude.limits.weekly.resetInSec)
       + (if $claude.limits.weeklyModel and ($claude.limits.weeklyModel.pct != null) then
           "\n  " + cbar($claude.limits.weeklyModel.pct; $th) + " " + ($claude.limits.weeklyModel.name // "model") + "   " + cpct($claude.limits.weeklyModel.pct; $th)
         else "" end)
@@ -120,9 +161,12 @@ echo "$json" | jq -c '
             else "" end)
         elif .kind == "tokens" then
           (if .status != "offline" then
-            "\n<b>" + .name + "</b>  " + (((.tokens.total // 0)/1000000*10|round/10)|tostring) + "M tok"
+            "\n<b>" + .name + "</b>"
+            + (if (.plan // "") != "" then " <span color=\"#8fb6d6\">" + .plan + "</span>" else "" end)
+            + "  " + (((.tokens.total // 0)/1000000*10|round/10)|tostring) + "M tok"
             + (if (.total.usd // 0) > 0 then " ≈ " + money(.total.usd; (.currency // "USD")) else "" end)
             + (if (.today.usd // 0) > 0 then " · today " + money(.today.usd; (.currency // "USD")) else "" end)
+            + limbars(.limits; $th)
           else "" end)
         elif .kind == "local" then
           (if (.status // "") != "offline" then

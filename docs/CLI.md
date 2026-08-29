@@ -70,6 +70,56 @@ the server**, not as hardcoded here.
 `crit`/`off` class. It exits 0 even when nothing answers, because a feeder that fails is a
 bar module that disappears.
 
+### Panel feeders — one badge, whatever bar you already run
+
+waybar is an Arch-and-Hyprland assumption. Fedora ships GNOME, Kali ships XFCE, and until
+2026-08-29 both of those users got no badge at all: `setup.sh` printed "waybar not found"
+and stopped. Every format below is the *same* reading through a different panel's syntax.
+
+| `--format` | Panel | Where it goes |
+|---|---|---|
+| `waybar` | waybar | `"exec"` of a `custom/…` module, `"return-type": "json"` |
+| `polybar` | polybar | `custom/script` module — colour via polybar's `%{F#hex}` tags |
+| `i3blocks` | i3blocks | a block's command — three lines: full_text, short_text, colour |
+| `genmon` | XFCE / Kali panel | `xfce4-genmon-plugin` command — `<txt>` + `<tool>` tooltip |
+| `argos` | GNOME / Fedora | `~/.config/argos/usage.30s.sh` (Argos or Executor extension) |
+| `plain` | KDE, conky, tmux, `$PS1` | no markup at all — just the text |
+
+```bash
+usage-tracker usage --format genmon                    # XFCE / Kali
+usage-tracker usage --format argos                     # GNOME / Fedora
+usage-tracker usage --format polybar --provider codex  # a second badge, for Codex
+```
+
+Three properties hold for all of them, and each is a test:
+
+* **Exit code 0, always** — including with no server. A non-zero exit makes the panel show
+  the *shell's* error instead of the "offline" badge the feeder wanted to draw.
+* **The server owns warn/crit.** No feeder carries its own pair; they all go through
+  `evaluate()`. A hardcoded 75/90 that matches today diverges the moment the user moves it.
+* **One palette.** The hex values are shared with `surface/waybar-usage.sh`, so the same
+  percentage is never one colour in waybar and another in polybar on the same screen.
+
+`./setup.sh probe` reports `desktop.recommended` — which of these fits this machine — and
+the `verify` step prints the ready-to-paste command when waybar is absent.
+
+### `--provider` — which wall the badge watches
+
+Any card that publishes the Claude card's `limits` block drives a badge, a `guard` exit
+code and a tooltip row. Codex does, reading its own reported 5-hour and weekly quota out of
+`~/.codex/sessions/**/rollout-*.jsonl`:
+
+```bash
+usage-tracker usage --provider codex          # Codex's own bars
+usage-tracker guard --provider codex          # exit 0/1/2/3 on Codex's quota
+usage-tracker guard --provider all            # the worst wall of any provider
+```
+
+A Codex bar carries `expired: true` once its window rolls over, and then reports **unknown
+(exit 3), not 0%** — after a reset we know the old window and nothing about the new one,
+and answering 0 would start exactly the expensive job the caller wanted blocked. See
+docs/WIRE.md → "`limits` on an adapter card".
+
 ## `providers` — which cards exist and why one is missing
 
 ```bash

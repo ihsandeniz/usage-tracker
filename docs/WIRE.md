@@ -167,9 +167,56 @@ total look complete.
   "total":   { "tokens": 0, "usd": 0 },
   "byModel": [], "byDay": [],
   "usdSource": "catalog",              // "catalog" | "estimate"
-  "note": "..."                        // human sentence; carries the truncation warning
+  "note": "...",                       // human sentence; carries the truncation warning
+  "warnings": ["…"],                   // short lines, see below (added 2026-08-29)
+  "plan": "plus",                      // subscription tier, when the provider reports one
+  "limits": { /* Claude's bar shape — see below (added 2026-08-29) */ }
 }
 ```
+
+### `limits` on an adapter card (added 2026-08-29)
+
+An adapter may publish **the Claude card's `limits` shape**: `session`, `weekly` and
+optionally `weeklyModel`, each a bar with the fields documented under "The Claude card".
+Codex is the first to do so; it reads `rate_limits` straight out of
+`~/.codex/sessions/**/rollout-*.jsonl`, where the Codex server reports `primary`
+(a 300-minute window) and `secondary` (10 080 minutes) as `used_percent`.
+
+The shape is the contract, not the provider name. `usage/cli.py:scopes_of`, the panel's
+`provLimits`, the waybar feeder's `limbars` and the tray's `_limit_lines` all branch on
+**the field being present**, so a future adapter that publishes it gets a badge, a bar, a
+tooltip row and a `guard` exit code without touching any of them. The previous version of
+`scopes_of` branched on `id == "claude"`, and the day Codex started publishing bars the
+wire already carried them while `guard --provider codex` still answered "no usable
+percentage" — an `if` written against one provider is a feature the next one re-implements.
+
+Three fields exist only on adapter bars, because the reading is not a live counter:
+
+| Field | Meaning |
+|---|---|
+| `observedAtMs` / `ageSec` | when the provider last reported this number |
+| `expired` | the window rolled over after that reading — `pct` is then `null` |
+| `reportedPct` | the last percentage seen, kept even when `pct` is `null` |
+
+**Why `pct` goes `null` instead of `0` when a window expires.** After a reset we know the
+old window's usage and nothing about the new one; the user may have spent quota from
+another surface (ChatGPT web) that never touches this log. Reporting `0` would make `guard`
+exit 0 and start exactly the expensive job the user wanted blocked. `null` maps to
+`unknown`/3, which this repo already defines as "do not read this as plenty left".
+
+**Why a stale-but-live-window reading is not marked `stale`.** Inside a fixed window
+`used_percent` only grows, so the last reading is a **floor**: a `warn`/`crit` reading is
+still true, and an `ok` one is true unless the provider was used outside this log. `ageSec`
+is published so surfaces can show how old it is; `stale` is reserved for `expired`, where
+the number genuinely no longer describes the current window.
+
+### `warnings` (added 2026-08-29)
+
+Short, one-clause strings meant to be rendered as separate lines. `note` stays what it was —
+a long human sentence, still published, still carrying the same information — but three
+warnings concatenated into one paragraph is a paragraph, and the panel was rendering it
+above the numbers it was warning about. Consumers should prefer `warnings` when present and
+fall back to `note`.
 
 ### `status: "partial"` (added 2026-08-11)
 

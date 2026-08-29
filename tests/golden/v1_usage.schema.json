@@ -2,6 +2,7 @@
   "anyAdapterCard": [
     {
       "auth": "string",
+      "available": "bool",
       "balance": {
         "remaining": "number"
       },
@@ -15,11 +16,17 @@
         {
           "model": "string",
           "short": "string",
+          "source": "string",
+          "tokens": {
+            "cached_input": "number",
+            "input": "number",
+            "output": "number"
+          },
           "usd": "number"
         }
       ],
       "currency": "string",
-      "error": "string",
+      "error": "null",
       "id": "string",
       "kind": "string",
       "limit": {
@@ -27,6 +34,50 @@
         "pct": "number",
         "reset": "string",
         "used": "number"
+      },
+      "limits": {
+        "session": {
+          "ageSec": "number",
+          "budget": "null",
+          "calibSuspect": "bool",
+          "expired": "bool",
+          "forecast": "null",
+          "limitId": "string",
+          "live": "bool",
+          "observedAtMs": "number",
+          "pct": "null",
+          "reachedType": "null",
+          "reportedPct": "number",
+          "resetAtMs": "number",
+          "resetInSec": "null",
+          "stale": "bool",
+          "units": "null",
+          "used": "null",
+          "windowMinutes": "number"
+        },
+        "weekly": {
+          "ageSec": "number",
+          "budget": "null",
+          "calibSuspect": "bool",
+          "expired": "bool",
+          "forecast": {
+            "etaMs": "null",
+            "etaText": "null",
+            "willExceed": "bool"
+          },
+          "limitId": "string",
+          "live": "bool",
+          "observedAtMs": "number",
+          "pct": "number",
+          "reachedType": "null",
+          "reportedPct": "number",
+          "resetAtMs": "number",
+          "resetInSec": "number",
+          "stale": "bool",
+          "units": "null",
+          "used": "null",
+          "windowMinutes": "number"
+        }
       },
       "modelCount": "number",
       "models": [
@@ -37,6 +88,7 @@
       ],
       "name": "string",
       "note": "string",
+      "plan": "string",
       "quota": {
         "limit": "number",
         "pct": "number",
@@ -62,6 +114,7 @@
         "usd": "number"
       },
       "tokens": {
+        "cached_input": "number",
         "input": "number",
         "output": "number",
         "total": "number"
@@ -70,8 +123,13 @@
         "tokens": "number",
         "usd": "number"
       },
+      "truncated": "bool",
+      "truncatedReason": "string",
       "updated": "string",
       "usdSource": "string",
+      "warnings": [
+        "string"
+      ],
       "windowDays": "number"
     }
   ],

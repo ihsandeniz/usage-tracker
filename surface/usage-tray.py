@@ -90,11 +90,16 @@ def _bar(pct):
     return '█' * n + '░' * (10 - n)
 
 
+# Son çare geri düşüş — gerçek eşik daima wire'dan (`data['thresholds']`) gelir.
+# Tek yerde durması, üç ayrı yerde sessizce ayrışmasını engelliyor (Y6).
+_FALLBACK_TH = {'warn': 75, 'crit': 90}
+
+
 def _col(pct, th=None):
     if pct is None:
         return _COLORS['off']
     if th is None:
-        th = {'warn': 75, 'crit': 90}
+        th = dict(_FALLBACK_TH)
     return _COLORS['crit'] if pct >= th['crit'] else _COLORS['warn'] if pct >= th['warn'] else '#22d3ee'
 
 
@@ -180,9 +185,32 @@ def _summarize(data):
     return cls, hi, '\n'.join(lines), headline
 
 
+def _limit_lines(p, th):
+    """Claude şeklindeki `limits` bloğunu tepsi ipucu satırlarına çevir.
+
+    Anahtar kartın kimliği değil ALANI: bu bloğu yayınlayan her sağlayıcı (Codex) aynı
+    satırları alır, tepsinin sağlayıcı adı bilmesine gerek kalmaz.
+    """
+    lim = p.get('limits')
+    if not isinstance(lim, dict):
+        return ''
+    out = ''
+    for key, label in (('session', 'session'), ('weekly', 'weekly ')):
+        b = lim.get(key)
+        if not isinstance(b, dict):
+            continue
+        out += '\n  %s %s %s' % (_cbar(b.get('pct'), th), label, _cpct(b.get('pct'), th))
+        if b.get('expired'):
+            # Ölçüm ölü bir pencereye ait: sıfır demek yerine sebebini yaz.
+            out += '  <span color="%s">↺ pencere sıfırlandı</span>' % _COLORS['off']
+        else:
+            out += _rst(b.get('resetInSec'))
+    return out
+
+
 def _provider_line(p, th=None):
     if th is None:
-        th = {'warn': 75, 'crit': 90}
+        th = dict(_FALLBACK_TH)
     kind = p.get('kind')
     name = p.get('name', '?')
     st = p.get('status')
@@ -224,8 +252,11 @@ def _provider_line(p, th=None):
         tot = (p.get('tokens') or {}).get('total') or 0
         usd = (p.get('total') or {}).get('usd') or 0
         curr = p.get('currency', 'USD')
-        return '<b>%s</b>  %sM tok%s' % (name, round(tot / 1e6, 1),
-                                         (' ≈ %s' % _num(usd, curr)) if usd else '')
+        plan = p.get('plan')
+        head = '<b>%s</b>%s  %sM tok%s' % (
+            name, (' <span color="%s">%s</span>' % (_COLORS['off'], plan)) if plan else '',
+            round(tot / 1e6, 1), (' ≈ %s' % _num(usd, curr)) if usd else '')
+        return head + _limit_lines(p, th)
     if kind == 'local':
         if st == 'offline':
             return '<b>%s</b>  <span color="%s">servis kapalı</span>' % (name, _COLORS['off'])

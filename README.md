@@ -125,6 +125,72 @@ X-GNOME-Autostart-enabled=true
 ```
 </details>
 
+## Not on Arch/Hyprland?
+
+The setup wizard auto-detects your desktop environment and available panel software, then suggests the right surface for you. Here's the full map:
+
+### XFCE (Kali, Fedora XFCE)
+
+Install the XFCE genmon plugin:
+```bash
+sudo apt install xfce4-genmon-plugin      # Debian / Ubuntu / Kali
+sudo dnf install xfce4-genmon-plugin      # Fedora
+sudo pacman -S xfce4-genmon-plugin        # Arch
+```
+
+Add to your XFCE panel: *Panel → Add New Items → Generic Monitor*, then in its properties:
+- **Command:** `python3 /ABS/PATH/server.py usage --format genmon`
+- **Period (s):** `30`
+
+### GNOME (Fedora GNOME, Ubuntu GNOME)
+
+Install Argos or Executor extension:
+```bash
+# Argos (simple shell script approach)
+mkdir -p ~/.config/argos
+cat > ~/.config/argos/usage.30s.sh <<'EOF'
+#!/bin/bash
+exec python3 /ABS/PATH/server.py usage --format argos
+EOF
+chmod +x ~/.config/argos/usage.30s.sh
+```
+
+Then install the Argos GNOME extension from https://extensions.gnome.org/extension/1357/argos/
+
+### KDE Plasma
+
+Add a Command Output plasmoid to your panel:
+1. Right-click the panel → **Edit Panel** → **Add Widget** → **Command Output**
+2. In the plasmoid settings:
+   - **Command:** `python3 /ABS/PATH/server.py usage --format plain`
+   - **Interval:** `30` seconds
+
+### Polybar
+
+Add a module to your polybar config (`~/.config/polybar/config.ini`):
+```ini
+[module/usage_tracker]
+type = custom/script
+exec = python3 /ABS/PATH/server.py usage --format polybar
+interval = 30
+format = <label>
+```
+
+Then add `usage_tracker` to your bar's `modules-right` or `modules-left`.
+
+### i3blocks
+
+Add to your i3blocks config (`~/.config/i3blocks/config`):
+```ini
+[usage_tracker]
+command=python3 /ABS/PATH/server.py usage --format i3blocks
+interval=30
+```
+
+In all cases, replace `/ABS/PATH` with the actual path to your usage-tracker repo (e.g., `/home/user/usage-tracker`).
+
+The wizard's `./setup.sh verify` step will suggest the best fit for your system.
+
 ## Provider keys
 
 Claude Code, Codex and local runners (Ollama / LM Studio / Jan) need **no key** — they read files already on your disk. Hosted providers need an API key to show a card. A missing key just hides that card (**no dead cards**) — nothing breaks.

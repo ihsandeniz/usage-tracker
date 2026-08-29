@@ -256,9 +256,15 @@ def card_of(wire, provider_id):
 def scopes_of(wire, provider='claude') -> list:
     """Every measurable percentage in the wire, flattened.
 
-    A "scope" is one wall you can hit: `claude/session`, `claude/weekly`,
+    A "scope" is one wall you can hit: `claude/session`, `claude/weekly`, `codex/session`,
     `openrouter/limit`, `elevenlabs/quota`. The worst of them is what guard reports —
     the first wall you hit is the one that stops you.
+
+    The `limits` branch is keyed on the FIELD, not on `id == 'claude'`. It used to be keyed
+    on the id, so when the Codex card started publishing the same bars the wire already
+    carried them and `guard` still could not see them: an `if` written against one provider
+    is a feature the next provider has to re-implement. Any card that publishes Claude's
+    bar shape is measured by every surface that reads this function.
     """
     out = []
     for card in (wire or {}).get('providers') or []:
@@ -269,14 +275,17 @@ def scopes_of(wire, provider='claude') -> list:
             continue
         name = card.get('name') or cid
 
-        if cid == 'claude':
-            limits = card.get('limits') or {}
+        limits = card.get('limits')
+        if isinstance(limits, dict):
             # How old the live number is, if this card's bars came from the live overlay.
-            age = (card.get('live') or {}).get('ageSec')
+            card_age = (card.get('live') or {}).get('ageSec')
             for key in ('session', 'weekly', 'weeklyModel'):
                 bar = limits.get(key)
                 if isinstance(bar, dict):
                     stale = bool(bar.get('stale'))
+                    # A bar may carry its own age (Codex times each reading); fall back to
+                    # the card-level one (Claude's live overlay ages as a whole).
+                    age = bar.get('ageSec') if bar.get('ageSec') is not None else card_age
                     out.append({'provider': cid, 'providerName': name, 'scope': f'{cid}/{key}',
                                 'pct': bar.get('pct'), 'resetInSec': bar.get('resetInSec'),
                                 'calibSuspect': bar.get('calibSuspect'),
@@ -380,7 +389,7 @@ def render_usage_text(wire, source, provider=None) -> str:
         if card.get('id') == 'claude':
             lines.extend(_render_claude(card, th))
         else:
-            lines.extend(_render_adapter(card))
+            lines.extend(_render_adapter(card, th))
     return '\n'.join(lines)
 
 
@@ -391,19 +400,7 @@ def _render_claude(card, thresholds) -> list:
         'stale' if live.get('ok') else 'calibrated' if card.get('calibrated') else 'estimated')
     out = [f'{card.get("name", "Claude Code")}  [{freshness}]']
 
-    labels = {'session': 'session', 'weekly': 'weekly', 'weeklyModel': 'weekly model'}
-    for key, label in labels.items():
-        bar = limits.get(key)
-        if not isinstance(bar, dict):
-            continue
-        pct = bar.get('pct')
-        mark = {'crit': '!!', 'warn': ' !', 'ok': '  ', 'unknown': ' ?'}[
-            level_for(pct, thresholds.get('warn'), thresholds.get('crit'))]
-        reset = fmt_duration(bar.get('resetInSec'))
-        suffix = f'   resets in {reset}' if reset else ''
-        name = bar.get('name')
-        out.append(f'  {mark} {label:<13}{fmt_pct(pct):>7}{suffix}'
-                   + (f'   [{name}]' if name else ''))
+    out.extend(_render_limit_bars(limits, thresholds))
 
     spend = card.get('spend') or {}
     currency = spend.get('currency') or 'USD'
@@ -423,13 +420,50 @@ def _render_claude(card, thresholds) -> list:
     return out
 
 
-def _render_adapter(card) -> list:
+_BAR_LABELS = {'session': 'session', 'weekly': 'weekly', 'weeklyModel': 'weekly model'}
+
+
+def _render_limit_bars(limits, thresholds) -> list:
+    """The `limits` block, rendered the same way whoever published it.
+
+    Shared between Claude and any adapter that publishes the same shape (Codex does), so
+    the text surface cannot drift from the badge: both read the same fields through the
+    same threshold pair.
+    """
+    out = []
+    if not isinstance(limits, dict):
+        return out
+    for key, label in _BAR_LABELS.items():
+        bar = limits.get(key)
+        if not isinstance(bar, dict):
+            continue
+        pct = bar.get('pct')
+        mark = {'crit': '!!', 'warn': ' !', 'ok': '  ', 'unknown': ' ?'}[
+            level_for(pct, thresholds.get('warn'), thresholds.get('crit'))]
+        reset = fmt_duration(bar.get('resetInSec'))
+        suffix = f'   resets in {reset}' if reset else ''
+        # A window that rolled over since the last reading: say so, and say what it last
+        # read. "—" alone looks like the provider was never measured at all.
+        if bar.get('expired'):
+            last = fmt_pct(bar.get('reportedPct'))
+            age = fmt_duration(bar.get('ageSec'))
+            suffix = f'   window reset since the last reading ({last}{f", {age} old" if age else ""})'
+        name = bar.get('name')
+        out.append(f'  {mark} {label:<13}{fmt_pct(pct):>7}{suffix}'
+                   + (f'   [{name}]' if name else ''))
+    return out
+
+
+def _render_adapter(card, thresholds=None) -> list:
     cid = card.get('id')
     kind = card.get('kind') or '—'
     status = card.get('status') or 'nodata'
     currency = card.get('currency')
-    head = f'{card.get("name", cid)}  [{kind} · {status}]'
+    plan = card.get('plan')
+    head = f'{card.get("name", cid)}  [{kind} · {status}{f" · {plan}" if plan else ""}]'
     out = [head]
+
+    out.extend(_render_limit_bars(card.get('limits'), thresholds or FALLBACK_THRESHOLDS))
 
     spend = card.get('spend') or {}
     if spend:
@@ -470,20 +504,114 @@ def _render_adapter(card) -> list:
     return out
 
 
+# One palette for every panel that cannot read a CSS class. waybar-usage.sh already uses
+# these exact hex values; a second palette here would mean the same percentage was one
+# colour in waybar and another in polybar on the same screen.
+LEVEL_COLOR = {'ok': '#00d1ff', 'warn': '#ffa500', 'crit': '#ff6b6b', 'unknown': '#8fb6d6'}
+OFFLINE_TEXT = '○ —'
+
+
+def _badge(wire, source, provider='claude') -> dict:
+    """What every panel badge needs, computed once: level, percentage, text, tooltip.
+
+    Every feeder below is a formatting of THIS. The thresholds are the server's (through
+    `evaluate`), never a constant here — a surface that carries its own warn/crit drifts
+    the moment the user changes theirs, and this repo has already paid for that once (Y6).
+    """
+    if wire is None:
+        return {'level': 'unknown', 'pct': None, 'text': OFFLINE_TEXT,
+                'color': LEVEL_COLOR['unknown'], 'css': 'off',
+                'tooltip': f'usage-tracker offline ({DEFAULT_BASE})', 'offline': True}
+    verdict = evaluate(wire, provider=provider)
+    level = verdict['level']
+    return {
+        'level': level,
+        'pct': verdict['pct'],
+        'text': f'◐ {fmt_pct(verdict["pct"])}',
+        'color': LEVEL_COLOR[level],
+        'css': {'ok': 'ok', 'warn': 'warn', 'crit': 'crit', 'unknown': 'off'}[level],
+        'tooltip': render_usage_text(wire, source).replace('\n\n', '\n'),
+        'offline': False,
+    }
+
+
 def render_waybar(wire, source, provider='claude') -> dict:
     """The Bash+jq feeder, without Bash and without jq — so Windows can have a badge too."""
-    if wire is None:
-        return {'text': '○ —', 'tooltip': f'usage-tracker offline ({DEFAULT_BASE})', 'class': 'off'}
-
-    verdict = evaluate(wire, provider=provider)
-    css = {'ok': 'ok', 'warn': 'warn', 'crit': 'crit', 'unknown': 'off'}[verdict['level']]
-    tooltip = [render_usage_text(wire, source).replace('\n\n', '\n')]
+    b = _badge(wire, source, provider)
+    if b['offline']:
+        return {'text': b['text'], 'tooltip': b['tooltip'], 'class': 'off'}
     return {
-        'text': f'◐ {fmt_pct(verdict["pct"])}',
-        'tooltip': '\n'.join(tooltip),
-        'class': css,
-        'percentage': int(verdict['pct']) if verdict['pct'] is not None else 0,
+        'text': b['text'],
+        'tooltip': b['tooltip'],
+        'class': b['css'],
+        'percentage': int(b['pct']) if b['pct'] is not None else 0,
     }
+
+
+def _xml_escape(text: str) -> str:
+    """Escape for BOTH element content and attribute values.
+
+    Today `render_genmon` only interpolates into element content, where `"` and `'` are
+    legal and the first three replacements are enough. They are here anyway: the day
+    somebody writes `<span foreground="{_xml_escape(x)}">` with an `x` that came off the
+    wire, an escaper that stops at `>` is a quote away from Pango markup injection, and
+    that is not a change anyone would think to re-audit this function for.
+    """
+    return (str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            .replace('"', '&quot;').replace("'", '&apos;'))
+
+
+def render_polybar(wire, source, provider='claude') -> str:
+    """polybar `custom/script`: one line, colour via polybar's own `%{F#hex}` tags."""
+    b = _badge(wire, source, provider)
+    return f'%{{F{b["color"]}}}{b["text"]}%{{F-}}'
+
+
+def render_i3blocks(wire, source, provider='claude') -> str:
+    """i3blocks protocol: full_text, short_text, colour — in that order, one per line."""
+    b = _badge(wire, source, provider)
+    short = b['text'] if b['offline'] else fmt_pct(b['pct'])
+    return f'{b["text"]}\n{short}\n{b["color"]}'
+
+
+def render_genmon(wire, source, provider='claude') -> str:
+    """xfce4-genmon-plugin (the XFCE/Kali panel): a tiny XML document.
+
+    `<txt>` takes Pango markup, `<tool>` is the hover tooltip. Both are escaped: a model
+    name with an `&` in it would otherwise make the plugin drop the whole reading.
+    """
+    b = _badge(wire, source, provider)
+    txt = f'<span foreground="{b["color"]}">{_xml_escape(b["text"])}</span>'
+    return f'<txt>{txt}</txt><tool>{_xml_escape(b["tooltip"])}</tool>'
+
+
+def render_argos(wire, source, provider='claude') -> str:
+    """GNOME Argos / Executor (the Fedora-with-GNOME path).
+
+    Line 1 is the panel button; everything after `---` is the dropdown. Argos splits menu
+    lines on `|`, so the tooltip's own pipes are stripped rather than escaped — a broken
+    menu entry is worse than a missing separator.
+    """
+    b = _badge(wire, source, provider)
+    head = f'{b["text"]} | color={b["color"]}'
+    body = [line.replace('|', '¦') for line in b['tooltip'].split('\n')]
+    return '\n'.join([head, '---'] + [f'{line} | font=monospace' for line in body])
+
+
+def render_plain(wire, source, provider='claude') -> str:
+    """No markup at all — KDE's Command Output plasmoid, conky, tmux, a shell prompt."""
+    return _badge(wire, source, provider)['text']
+
+
+# Adding a format is one entry here plus one argparse choice; the renderers above share
+# `_badge`, so a new panel cannot invent its own idea of "how full is it".
+TEXT_FEEDERS = {
+    'polybar': render_polybar,
+    'i3blocks': render_i3blocks,
+    'genmon': render_genmon,
+    'argos': render_argos,
+    'plain': render_plain,
+}
 
 
 def cmd_usage(args) -> int:
@@ -492,6 +620,11 @@ def cmd_usage(args) -> int:
         print(json.dumps(render_waybar(wire, source, args.provider or 'claude'),
                          ensure_ascii=False))
         return 0                                   # a feeder must never crash the bar
+    if args.format in TEXT_FEEDERS:
+        # Same rule as waybar: a panel feeder exits 0 even with no server. A non-zero exit
+        # makes polybar/genmon show the *shell's* error instead of our "offline" badge.
+        print(TEXT_FEEDERS[args.format](wire, source, args.provider or 'claude'))
+        return 0
     if wire is None:
         _fail(f'no data (source: {source})')
         return LEVEL_EXIT['unknown']
@@ -1097,7 +1230,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest='command', metavar='command')
 
     p_usage = subparsers.add_parser('usage', help='show limits and spend')
-    p_usage.add_argument('--format', choices=('text', 'json', 'waybar'), default='text')
+    # waybar is Arch/Hyprland shorthand; the rest are the same badge for the panels
+    # everybody else already has (XFCE/Kali → genmon, GNOME/Fedora → argos, KDE → plain).
+    p_usage.add_argument('--format',
+                         choices=('text', 'json', 'waybar', 'polybar', 'i3blocks',
+                                  'genmon', 'argos', 'plain'),
+                         default='text')
     p_usage.add_argument('--provider', help='only this card (id), or "all"')
     p_usage.add_argument('--pretty', action='store_true', help='indent JSON output')
     _add_source_flags(p_usage)

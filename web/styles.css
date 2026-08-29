@@ -150,6 +150,9 @@ table.models{width:100%;border-collapse:collapse;font-size:13px}
 .lbar-name small{color:var(--muted);font-weight:400;margin-left:6px}
 .lbar-pct{font-variant-numeric:tabular-nums;font-weight:700}
 .track{height:9px;background:var(--card2);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+/* Ölçülemeyen bar: dolu dilim YOK, taralı ray var. "Ölçemedim" ile "az kullandın"
+   ekranda aynı görünmemeli. */
+.track.unmeasured{background-image:repeating-linear-gradient(135deg,transparent 0 5px,var(--line2) 5px 6px)}
 .fill{height:100%;border-radius:20px;transition:width .4s ease;box-shadow:0 0 12px currentColor}
 .fill.ok{background:var(--green);color:var(--green)}
 .fill.warn{background:var(--amber);color:var(--amber)}
@@ -231,6 +234,16 @@ button{cursor:pointer;font-family:inherit}
 .prov-stats b.gold{color:var(--gold)}
 .spark.mini{height:30px;gap:1px;padding:4px 6px;margin:2px 0 8px}
 .prov-limit{margin-top:6px}
+/* Sağlayıcı kartı içindeki limit barları — Claude bölümüyle AYNI .lbar bileşeni, dar
+   kolona sığsın diye küçültülmüş. Ayrı bir bar bileşeni yazmak, iki yerde iki farklı
+   "dolu" tanımı demekti. */
+.prov-limits{margin:2px 0 10px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.prov-limits .lbar{margin-bottom:9px}
+.prov-limits .lbar:last-child{margin-bottom:0}
+.prov-limits .lbar-name{font-size:11.5px}
+.prov-limits .lbar-pct{font-size:13px}
+.prov-limits .track{height:7px}
+.prov-limits .lbar-sub{font-size:10px}
 .pl-row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted2);margin-bottom:5px}
 .track.sm{height:7px}
 .prov-models{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}

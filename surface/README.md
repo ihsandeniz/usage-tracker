@@ -61,7 +61,22 @@ window; the browser remembers its size/position).
 
 On **Hyprland** the launcher floats + pins the window and sizes/places it top-right automatically
 (via `hyprctl dispatch` on the mapped window — no config edit). Move it with `Super`+drag, resize
-with `Super`+right-drag or the edges. On other compositors, float/size it however you normally do.
+with `Super`+right-drag or the edges.
+
+**On other compositors / desktop environments:**
+
+- **Sway:** Use `floating enable` in your sway config, or float manually: `Super+F` toggles float
+- **i3 / i3gaps:** Add to `~/.config/i3/config`: `for_window [title="usage-tracker"] floating enable, resize set 360 520`
+- **XFCE Xfwm:** Right-click the window → Properties → Advanced → make it "Always on top" and float it
+- **GNOME (Wayland/X11):** The window will start floating; drag it where you want. On X11 you can also use `wmctrl`
+- **KDE Plasma:** The window should float automatically; use the panel's window menu to keep it always-on-top
+- **openbox:** Add to `~/.config/openbox/rc.xml` (inside `<applications>`):
+  ```xml
+  <application name="google-chrome" title="usage-tracker*">
+    <decor>no</decor>
+    <layer>above</layer>
+  </application>
+  ```
 
 Autostart (Hyprland): `exec-once = /ABS/PATH/surface/usage-widget open`.
 

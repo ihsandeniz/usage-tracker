@@ -116,6 +116,72 @@ X-GNOME-Autostart-enabled=true
 ```
 </details>
 
+## Arch/Hyprland'de değilsen?
+
+Kurulum sihirbazı masaüstü ortamını ve kullanılabilir panel yazılımını otomatik algılar, sana uygun yüzeyi önerir. İşte tam harita:
+
+### XFCE (Kali, Fedora XFCE)
+
+XFCE genmon eklentisini kur:
+```bash
+sudo apt install xfce4-genmon-plugin      # Debian / Ubuntu / Kali
+sudo dnf install xfce4-genmon-plugin      # Fedora
+sudo pacman -S xfce4-genmon-plugin        # Arch
+```
+
+XFCE panelinize ekle: *Panel → Yeni Öğe Ekle → Genel İzleyici*, sonra özelliklerinde:
+- **Komut:** `python3 /MUTLAK/YOL/server.py usage --format genmon`
+- **Periyot (s):** `30`
+
+### GNOME (Fedora GNOME, Ubuntu GNOME)
+
+Argos veya Executor eklentisini kur:
+```bash
+# Argos (basit shell script yöntemi)
+mkdir -p ~/.config/argos
+cat > ~/.config/argos/usage.30s.sh <<'EOF'
+#!/bin/bash
+exec python3 /MUTLAK/YOL/server.py usage --format argos
+EOF
+chmod +x ~/.config/argos/usage.30s.sh
+```
+
+Sonra Argos GNOME eklentisini https://extensions.gnome.org/extension/1357/argos/ adresinden kur.
+
+### KDE Plasma
+
+Panelinize Command Output plasmoid ekle:
+1. Panele sağ tıkla → **Paneli Düzenle** → **Wiget Ekle** → **Komut Çıktısı**
+2. Plasmoid ayarlarında:
+   - **Komut:** `python3 /MUTLAK/YOL/server.py usage --format plain`
+   - **Aralık:** `30` saniye
+
+### Polybar
+
+Polybar config dosyasına (`~/.config/polybar/config.ini`) modül ekle:
+```ini
+[module/usage_tracker]
+type = custom/script
+exec = python3 /MUTLAK/YOL/server.py usage --format polybar
+interval = 30
+format = <label>
+```
+
+Sonra `usage_tracker`'ı bar'ının `modules-right` veya `modules-left`'ine ekle.
+
+### i3blocks
+
+i3blocks config dosyasına (`~/.config/i3blocks/config`) ekle:
+```ini
+[usage_tracker]
+command=python3 /MUTLAK/YOL/server.py usage --format i3blocks
+interval=30
+```
+
+Hepsi için `/MUTLAK/YOL` yerine usage-tracker repo'sunun gerçek yolunu yaz (örneğin `/home/user/usage-tracker`).
+
+Sihirbazın `./setup.sh verify` adımı sisteminize en iyi uygunu önerecektir.
+
 ## Ne izler?
 
 | Boyut | Ne | Kaynak |

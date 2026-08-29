@@ -265,38 +265,79 @@ def collect(days: int = 30) -> list:
             ],
             'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
         },
-        # Codex: DÜZELTME — status=offline ama minimal geçerli kart şeması
-        # byModel en az 1 eleman (frontend byModel[0] okuyor)
+        # Codex: token hacmi + KENDİ BİLDİRDİĞİ limit yüzdesi (FAZ 7a).
+        #
+        # Bu kart bilerek "minimal geçerli" DEĞİL — üretimin tam şekli. Golden şema bu
+        # demo'dan üretiliyor: demo'nun basmadığı alan, hiçbir testin göremediği alandır
+        # (2026-08-13'te `forecast` tam olarak böyle kayboldu). İki bar bilerek FARKLI
+        # durumda: `session` süresi dolmuş pencere (pct=None + expired), `weekly` canlı —
+        # ekran görüntüsü ve test ikisini birden gezsin.
         {
             'id': 'codex',
             'name': 'Codex',
             'kind': 'tokens',
-            'status': 'offline',
-            'currency': None,
+            'available': True,
+            'status': 'partial',
+            'error': None,
+            'currency': 'USD',
+            'auth': 'chatgpt',
+            'plan': 'plus',
             'windowDays': 30,
-            'tokens': {'total': 0},
-            'total': {'usd': 0},
-            'today': {'tokens': 0, 'usd': 0},
+            'sessions': 12,
+            'truncated': True,
+            'truncatedReason': 'files',
+            'limits': {
+                'session': {
+                    'pct': None, 'used': None, 'units': None, 'budget': None,
+                    'calibSuspect': False,
+                    'resetAtMs': now_ms - 3_600_000, 'resetInSec': None,
+                    'forecast': None, 'live': True, 'stale': True,
+                    'windowMinutes': 300,
+                    'observedAtMs': now_ms - 21_600_000, 'ageSec': 21600.0,
+                    'expired': True, 'reportedPct': 100.0,
+                    'limitId': 'codex', 'reachedType': None,
+                },
+                'weekly': {
+                    'pct': 29.0, 'used': None, 'units': None, 'budget': None,
+                    'calibSuspect': False,
+                    'resetAtMs': now_ms + 302_400_000, 'resetInSec': 302_400,
+                    'forecast': {'willExceed': False, 'etaMs': None, 'etaText': None},
+                    'live': True, 'stale': False,
+                    'windowMinutes': 10080,
+                    'observedAtMs': now_ms - 21_600_000, 'ageSec': 21600.0,
+                    'expired': False, 'reportedPct': 29.0,
+                    'limitId': 'codex', 'reachedType': None,
+                },
+            },
+            'tokens': {'input': 8_120_000, 'cached_input': 5_400_000,
+                       'output': 1_310_000, 'total': 9_430_000},
+            'total': {'tokens': 9_430_000, 'usd': 24.8},
+            'today': {'tokens': 412_000, 'usd': 1.12},
             'byModel': [
-                {'short': '—', 'model': 'n/a'},  # DÜZELTME: boş array → 1 elem
+                {'model': 'gpt-5-codex', 'short': 'codex', 'usd': 24.8, 'source': 'catalog',
+                 'tokens': {'input': 8_120_000, 'cached_input': 5_400_000, 'output': 1_310_000}},
             ],
             'byDay': [],
-            'sessions': 0,
-            'auth': 'çevrimdışı',
             'usdSource': 'catalog',
-            'error': 'Codex sesyonları bulunamadı',
+            'warnings': ['Bir limit penceresi son ölçümden sonra sıfırlandı — o bar '
+                         '"bilinmiyor", sıfır değil.',
+                         'Yalnız en yeni 40 oturum tarandı — token/$ toplamı EKSİK.'],
+            'note': 'ChatGPT aboneliği — $ API-eşdeğeri maliyettir (gerçek fatura sabit abonelik).',
             'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
         },
-        # Ollama: local/offline — minimal geçerli kart
+        # Ollama: local/offline — üretimin bastığı alanların hepsi burada da var
         {
             'id': 'ollama',
             'name': 'Ollama',
             'kind': 'local',
+            'available': True,
             'status': 'offline',
+            'error': None,
             'currency': None,
             'modelCount': 0,
             'models': [],
             'running': [],
+            'note': 'Binary kurulu, servis kapalı. `ollama serve` ile başlat.',
             'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
         },
         # ElevenLabs: karakter kotası — GERÇEK ŞEMA (kind='quota')
@@ -350,7 +391,10 @@ def collect(days: int = 30) -> list:
             'id': 'lmstudio',
             'name': 'LM Studio',
             'kind': 'local',
+            'available': True,
             'status': 'ok',
+            'error': None,
+            'note': None,
             'currency': None,
             'modelCount': 3,
             'models': [

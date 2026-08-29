@@ -36,7 +36,10 @@ const I18N = {
       + 'beside the dollars, with its rate and the day you entered it.',
     setKeysNote: 'This server never writes keys and never shows their value — only the environment '
       + 'variable name and whether it is set. To add a key: ./setup.sh --ui → step "keys".',
-    keySet: 'set', keyUnset: 'not set', rateAt: 'rate', enteredOn: 'entered'
+    keySet: 'set', keyUnset: 'not set', rateAt: 'rate', enteredOn: 'entered',
+    win5h: '5-hour window', winWeek: 'Weekly', winWeekModel: 'Weekly model',
+    winReset: 'window reset since', measured: 'measured', ago: 'ago',
+    limitFloor: 'reported by the provider — a floor, not a live counter'
   },
   tr: {
     spend: 'Gerçek Harcama', limits: 'Claude Limitleri', calibration: 'Kalibrasyon (yedek)', view: 'Görünüm',
@@ -68,7 +71,10 @@ const I18N = {
       + 'dolarların yanında, kuru ve girdiğin tarihle gösterilir.',
     setKeysNote: 'Bu sunucu anahtar yazmaz ve anahtarın değerini hiçbir zaman göstermez — yalnız '
       + 'ortam değişkeninin adını ve dolu/boş durumunu. Anahtar eklemek için: ./setup.sh --ui → “keys” adımı.',
-    keySet: 'dolu', keyUnset: 'boş', rateAt: 'kur', enteredOn: 'girildi'
+    keySet: 'dolu', keyUnset: 'boş', rateAt: 'kur', enteredOn: 'girildi',
+    win5h: '5 saatlik pencere', winWeek: 'Haftalık', winWeekModel: 'Haftalık model',
+    winReset: 'pencere sıfırlandı —', measured: 'ölçüm', ago: 'önce',
+    limitFloor: 'sağlayıcının kendi bildirimi — anlık sayaç değil, alt sınır'
   }
 };
 
@@ -180,22 +186,36 @@ function barClass(pct, th) {
 function countdown(sec) {
   if (sec == null) return '';
   if (sec < 0) sec = 0;
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  // Gün kademesi haftalık pencere için şart: 7 günlük bir reset "85s 41dk" diye basılıyordu
+  // ve okuyan kimse bunun 3,5 gün olduğunu tek bakışta göremiyordu.
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}g ${h}s`;
   return h > 0 ? `${h}s ${m}dk` : `${m}dk`;
 }
 function lbar(name, sub, b, th) {
   const pct = b && b.pct != null ? b.pct : null;
-  const w = pct == null ? 8 : Math.min(100, pct);
+  // Ölçülemeyen bar 0 genişlikte + taralı ray: eskiden %8'lik dolu bir dilim çiziliyordu ve
+  // "ölçemedim" ile "az kullanmışsın" ekranda AYNI görünüyordu.
+  const w = pct == null ? 0 : Math.min(100, pct);
   const label = pct == null ? '—' : roundHalfUp(pct, 1) + '%';
-  const reset = b && b.resetInSec != null ? `reset ${countdown(b.resetInSec)}` : t('uncalib');
+  // 'kalibre değil' Claude'a özgü bir teşhistir. Kalibrasyonu olmayan bir sağlayıcının
+  // (Codex yüzdeyi kaynağından okur) barına bunu yazmak, olmayan bir ayarı suçlamaktı.
+  const reset = b && b.resetInSec != null ? `reset ${countdown(b.resetInSec)}`
+    : (b && b.subRight != null ? esc(b.subRight) : t('uncalib'));
   const unitsStr = (b?.units ?? null) == null ? '—' : b.units.toLocaleString();
-  const budget = b && b.budget ? `${unitsStr} / ${b.budget.toLocaleString()} ${t('units')}` : `${unitsStr} ${t('units')}`;
+  // Bir bar birim/bütçe taşımak zorunda değil: Codex yüzdenin KENDİSİNİ bildirir, ağırlıklı
+  // birim saymaz. O kartlarda "— birim" bilgi değil gürültüdür; `subLeft` yerine ölçümün
+  // yaşını yazar, çünkü o barın tek zayıf noktası anlık olmamasıdır.
+  const budget = b && b.subLeft != null
+    ? esc(b.subLeft)
+    : (b && b.budget ? `${unitsStr} / ${b.budget.toLocaleString()} ${t('units')}` : `${unitsStr} ${t('units')}`);
   const forecast = b && b.forecast && b.forecast.willExceed ? b.forecast.etaText : null;
   const forecastClass = forecast && pct >= 75 ? 'forecast-warn' : 'forecast-ok';
   return `<div class="lbar">
     <div class="lbar-head"><span class="lbar-name">${esc(name)}${sub ? ` <small>${esc(sub)}</small>` : ''}</span>
       <span class="lbar-pct">${label}</span></div>
-    <div class="track"><div class="fill ${barClass(pct, th)}" style="width:${w}%"></div></div>
+    <div class="track${pct == null ? ' unmeasured' : ''}"><div class="fill ${barClass(pct, th)}" style="width:${w}%"></div></div>
     <div class="lbar-sub"><span>${budget}</span><span>${reset}</span></div>
     ${forecast ? `<div class="lbar-forecast ${forecastClass}">${esc(forecast)}</div>` : ''}
   </div>`;
@@ -244,6 +264,16 @@ function esc(s) { return String(s ?? '').replace(/[<>&"]/g, c => ({ '<': '&lt;',
 
 // ── TEK BAKIŞ ŞERİDİ (FAZ 5c) — tüm sağlayıcıların manşet durumu tek satırda, tık→karta kaydır
 function pctCls(p) { return p == null ? 'none' : p >= 90 ? 'crit' : p >= 75 ? 'warn' : 'ok'; }
+// Bir kartın en yüksek limit yüzdesi (yoksa null). Ölçülemeyen bar (pencere sıfırlanmış,
+// pct=null) sayılmaz — 0 sayılsaydı dolu bir haftalık barı sıfır bir oturum barı gizlerdi.
+function highestLimit(c) {
+  const L = c && c.limits;
+  if (!L || typeof L !== 'object') return null;
+  const vals = ['session', 'weekly', 'weeklyModel']
+    .map(k => (L[k] && typeof L[k] === 'object') ? L[k].pct : null)
+    .filter(v => v != null && !isNaN(v));
+  return vals.length ? Math.max(...vals) : null;
+}
 function gchip(name, dotCls, valText, valCls, pct, target) {
   const w = pct == null ? 0 : Math.min(100, pct);
   const bar = pct == null ? ''
@@ -265,7 +295,11 @@ function renderGlanceStrip(usage, providers) {
   for (const c of providers) {
     let dot = c.status === 'ok' ? 'ok' : c.status === 'offline' ? 'off' : 'err';
     let val = '—', vcls = 'muted', pct = null;
+    // Kartı bir limit yayınlıyorsa manşet ODUR — bir duvara ne kadar yaklaştığın, o gün
+    // ne kadar token harcadığından daha acil bir bilgidir. Claude satırıyla aynı kural.
+    const hiLimit = highestLimit(c);
     if (c.status === 'error') { val = 'hata'; vcls = 'crit'; dot = 'err'; }
+    else if (hiLimit != null) { pct = hiLimit; dot = pctCls(pct); vcls = pctCls(pct); val = Math.round(pct) + '%'; }
     else if (c.kind === 'spend') {
       if (c.limit && c.limit.pct != null) { pct = c.limit.pct; dot = pctCls(pct); vcls = pctCls(pct); val = Math.round(pct) + '%'; }
       else if (c.spend && c.spend.today != null) { val = fmtUsd(c.spend.today); vcls = 'spend'; }
@@ -359,13 +393,65 @@ function filterProviders(list, selectedTab, searchQuery) {
   return { main, longtrail };
 }
 
+// (Burada ikinci bir `fmtAge` vardı. JS'te sonraki tanım öncekini SESSİZCE ezer: satır
+//  238'deki asıl fonksiyon yerini bu kopyaya bırakıyor, `liveFlag()` de onu çağırdığı için
+//  Claude kartının tazelik rozeti farkında olmadan biçim değiştiriyordu. Kopya kaldırıldı —
+//  tek `fmtAge` var ve süre biçimi panelin geri kalanıyla (`countdown`) aynı kaldı.)
+
+// Sağlayıcı kartındaki limit barları — Claude'unkiyle AYNI bileşen (lbar).
+// Anahtar `kind` değil `limits`: bu şekli yayınlayan HER kart barını alır, panelin
+// sağlayıcı adını bilmesine gerek kalmaz (cli.scopes_of ile aynı kural).
+function provLimits(c) {
+  const L = c && c.limits;
+  if (!L || typeof L !== 'object') return '';
+  const th = GLOBAL_THRESHOLDS;
+  const rows = [['session', t('win5h')], ['weekly', t('winWeek')], ['weeklyModel', t('winWeekModel')]];
+  let html = '';
+  for (const [key, label] of rows) {
+    const b = L[key];
+    if (!b || typeof b !== 'object') continue;
+    html += lbar(label, b.name || '', decorateBar(b), th);
+  }
+  return html ? `<div class="prov-limits" title="${esc(t('limitFloor'))}">${html}</div>` : '';
+}
+
+function decorateBar(b) {
+  if (b.units != null || b.budget != null) return b;
+  // fmtAge() boş dize döndürebilir (0 sn / geçersiz) — o zaman "ölçüm:  önce" yazmak
+  // bilgi değil kırık cümledir.
+  const age = fmtAge(b.ageSec);
+  const measured = age ? `${t('measured')}: ${age} ${t('ago')}` : '';
+  let left = '', right = '';
+  if (b.expired) {
+    // Ölü pencerenin yüzdesini gizlemek de yalan olurdu: "—" hiç ölçülmemiş gibi okunur.
+    const last = b.reportedPct != null ? ` (${roundHalfUp(b.reportedPct, 1)}%)` : '';
+    left = `${t('winReset')}${last}`;
+    right = measured;
+  } else {
+    left = measured;
+  }
+  return { ...b, subLeft: left, subRight: right };
+}
+
 function renderProviderCard(c) {
   if (c.status === 'error')
     return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || t('unreachable'))}</div>`);
 
-  if (c.status === 'partial')
-    return provShell(c, `<div class="prov-note warn">⚠ ${esc(c.note || 'Tarama eksik (truncated)')}</div>`);
+  // 'partial' = sayı VAR ama eksik ("ok demek yalan olurdu" — providers/__init__.py).
+  // Burada eskiden erken dönülüyordu: kart yalnız uyarıyı gösteriyor, ÖLÇÜLMÜŞ her sayıyı
+  // (token toplamı, $ tahmini, limit barları) ekrandan siliyordu. Eksik veri, veri yokluğu
+  // değildir — uyarı artık gövdeyi bastırmıyor, başına geçiyor.
+  // Kısa `warnings` satırları varsa onlar basılır; uzun `note` düzyazısı kartın yarısını
+  // kaplayıp altındaki sayıları ekranın dışına itiyordu.
+  const warns = Array.isArray(c.warnings) ? c.warnings.filter(Boolean) : [];
+  const notice = warns.length
+    ? warns.map(w => `<div class="prov-note warn">⚠ ${esc(w)}</div>`).join('')
+    : (c.status === 'partial'
+        ? `<div class="prov-note warn">⚠ ${esc(c.note || 'Tarama eksik (truncated)')}</div>` : '');
+  return provShell(c, notice + provLimits(c) + providerBody(c));
+}
 
+function providerBody(c) {
   if (c.kind === 'spend') {           // OpenRouter/OpenAI — gerçek $ (bazıları sadece bakiye)
     const sp = c.spend || {}, bal = c.balance, lim = c.limit;
     const cells = [];
@@ -379,31 +465,31 @@ function renderProviderCard(c) {
       body += `<div class="prov-limit"><div class="pl-row"><span>${t('dailyLimit')} (${esc(lim.reset || '')})</span>
         <span>${fmtUsd(lim.used, c.currency)} / ${fmtUsd(lim.amount, c.currency)}</span></div>${provMiniBar(lim.pct, cls)}</div>`;
     }
-    return provShell(c, body);
+    return body;
   }
 
   if (c.kind === 'tokens') {          // Codex — abonelik, token + $ tahmini
     const tk = c.tokens || {}, tot = c.total || {}, td = c.today || {};
     const srcCls = c.usdSource === 'catalog' ? 'catalog' : 'estimate';
-    return provShell(c, `<div class="prov-stats">
+    return `<div class="prov-stats">
       <div><span class="pl">${c.windowDays}g token</span><b>${fmtTok(tk.total)}</b></div>
       <div><span class="pl">≈ maliyet <span class="src ${srcCls}">${esc(c.usdSource)}</span></span><b class="gold">${fmtUsd(tot.usd, c.currency)}</b></div>
       <div><span class="pl">${t('today')}</span><b>${fmtTok(td.tokens)} · ${fmtUsd(td.usd, c.currency)}</b></div>
     </div>
     ${provSpark(c.byDay, true)}
-    <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} ${t('session')} · ${esc(c.auth)}</span></div>`);
+    <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} ${t('session')} · ${esc(c.auth)}</span></div>`;
   }
 
   if (c.kind === 'local') {           // Ollama — yerel
     if (c.status === 'offline')
-      return provShell(c, `<div class="prov-err off">● ${t('offline')} — <code>ollama serve</code></div>`);
+      return `<div class="prov-err off">● ${t('offline')} — <code>ollama serve</code></div>`;
     const run = (c.running || []).length;
-    return provShell(c, `<div class="prov-stats">
+    return `<div class="prov-stats">
       <div><span class="pl">${t('modelCount')}</span><b>${c.modelCount || 0}</b></div>
       <div><span class="pl">${t('used')}</span><b class="${run ? 'gold' : ''}">${run}</b></div>
     </div>
     <div class="prov-models">${(c.models || []).slice(0, 4).map(m =>
-      `<span class="chip">${esc(m.name)} <small>${fmtSize(m.size)}</small></span>`).join('') || `<span class="muted">${t('noData')}</span>`}</div>`);
+      `<span class="chip">${esc(m.name)} <small>${fmtSize(m.size)}</small></span>`).join('') || `<span class="muted">${t('noData')}</span>`}</div>`;
   }
 
   if (c.kind === 'quota') {           // ElevenLabs — karakter kotası ($ yok)
@@ -417,9 +503,9 @@ function renderProviderCard(c) {
     <div class="prov-limit"><div class="pl-row"><span>Aylık ${esc(unit)} (${q.pct == null ? '—' : q.pct + '%'})</span>
       <span>${fmtCount(q.used)} / ${fmtCount(q.limit)}</span></div>${provMiniBar(q.pct, cls)}</div>`;
     if (q.reset) body += `<div class="pl-row muted"><span>Sıfırlanma</span><span>${fmtResetUnix(q.reset)}</span></div>`;
-    return provShell(c, body);
+    return body;
   }
-  return provShell(c, '');
+  return '';
 }
 
 function renderProviders(list) {
@@ -439,7 +525,7 @@ function provShell(c, body) {
   const dot = c.status === 'ok' ? 'ok' : c.status === 'offline' ? 'off' : 'err';
   const badge = c.kind === 'quota' ? (c.tier || 'kota')
     : c.kind === 'local' ? 'yerel'
-    : c.kind === 'tokens' ? (c.auth === 'yerel-log' ? 'yerel-log' : 'abonelik')
+    : c.kind === 'tokens' ? (c.auth === 'yerel-log' ? 'yerel-log' : (c.plan ? `abonelik · ${c.plan}` : 'abonelik'))
     : (c.tier || '');
   return `<div class="prov" id="prov-${esc(c.id)}">
     <div class="prov-head"><span class="pdot ${dot}"></span><span class="prov-name">${esc(c.name)}</span>

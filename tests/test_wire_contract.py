@@ -234,6 +234,33 @@ class DemoLooksLikeProduction(_QuietWire):
         self.assertFalse(missing, 'the demo card cannot exercise these production fields:\n  '
                                   + '\n  '.join(missing))
 
+    def test_demo_adapter_cards_have_every_production_field(self):
+        """The same guarantee, one card over.
+
+        The comparison above walks `providers[0]` — Claude — and nothing else, so every
+        adapter card was outside it. That is the 2026-08-13 blind spot moved one level up,
+        and it opened again the moment the Codex card started publishing `limits`, `plan`
+        and `warnings`: production emitted three new fields the demo had never heard of,
+        the golden snapshot is generated from the demo, and 392 tests stayed green.
+
+        Only cards present in BOTH are compared. Which adapters exist depends on the
+        machine (this laptop has codex and ollama; a CI runner has neither), so a demo
+        card with no production counterpart is not a failure — an unexercised production
+        field is.
+        """
+        prod = {c['id']: c for c in engine.usage_wire()['providers'][1:] if c.get('id')}
+        fake = {c['id']: c for c in demo.usage_wire()['providers'][1:] if c.get('id')}
+        shared = sorted(set(prod) & set(fake))
+        if not shared:
+            self.skipTest('no adapter card exists in both the demo and this machine')
+        for cid in shared:
+            with self.subTest(card=cid):
+                missing = _missing_fields(prod[cid], fake[cid])
+                self.assertFalse(
+                    missing,
+                    f'the demo "{cid}" card cannot exercise these production fields:\n  '
+                    + '\n  '.join(missing))
+
 
 if __name__ == '__main__':
     unittest.main()

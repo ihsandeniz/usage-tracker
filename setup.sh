@@ -144,6 +144,50 @@ find_browser() { # the single source of truth for "can we run the widget?"
   return 1
 }
 
+# Which panel surface fits this machine → waybar|polybar|i3blocks|genmon|argos|plasmoid|tray
+#
+# Three tiers, in this order and for a reason:
+#   1. a status bar the user ALREADY runs  — evidence beats inference
+#   2. what the desktop says it is         — $XDG_CURRENT_DESKTOP
+#   3. the desktop's shell binary          — for a session that announces nothing
+#
+# Tier 2 exists because tier 3 alone was the whole rule at first, and it answered "tray"
+# for every XFCE, GNOME and KDE session whose panel binary was not on PATH — exactly the
+# Fedora and Kali users this feature is for. Sandboxed and immutable installs (Flatpak,
+# Silverblue) routinely hide `gnome-shell` from the caller's PATH, and "tray" is the worst
+# possible answer there: on GNOME the tray needs an extension the user does not have, so
+# the recommendation leads nowhere.
+#
+# ONE function, called by both `probe` and `verify`. They each had their own copy of this
+# ladder and the copies had already drifted.
+recommend_surface() {
+  local de_lc
+  # XDG_CURRENT_DESKTOP is colon-separated in the wild ("ubuntu:GNOME"), hence the globs.
+  de_lc=$(printf '%s' "${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}" | tr 'A-Z' 'a-z')
+  if command -v waybar >/dev/null 2>&1; then printf 'waybar\n'; return 0; fi
+  if command -v polybar >/dev/null 2>&1; then printf 'polybar\n'; return 0; fi
+  if command -v i3blocks >/dev/null 2>&1; then printf 'i3blocks\n'; return 0; fi
+  case "$de_lc" in
+    *xfce*|*mate*|*lxde*|*lxqt*)  printf 'genmon\n';   return 0 ;;
+    *gnome*|*unity*|*cinnamon*)   printf 'argos\n';    return 0 ;;
+    *kde*|*plasma*)               printf 'plasmoid\n'; return 0 ;;
+  esac
+  if command -v xfce4-panel >/dev/null 2>&1; then printf 'genmon\n'; return 0; fi
+  if command -v gnome-shell >/dev/null 2>&1; then printf 'argos\n'; return 0; fi
+  if command -v plasmashell >/dev/null 2>&1; then printf 'plasmoid\n'; return 0; fi
+  printf 'tray\n'
+}
+
+# The `usage --format` a surface needs. `plasmoid` has no markup of its own — KDE's
+# Command Output widget prints raw text — so it takes `plain`.
+surface_format() {
+  case "$1" in
+    polybar|i3blocks|genmon|argos) printf '%s\n' "$1" ;;
+    plasmoid)                      printf 'plain\n' ;;
+    *)                             printf '\n' ;;
+  esac
+}
+
 find_waybar_config() {
   local f
   for f in "$CFG/waybar/config.jsonc" "$CFG/waybar/config"; do
@@ -276,7 +320,7 @@ TOGETHER_API_KEY NOVITA_API_KEY DEEPINFRA_API_KEY HUGGINGFACE_API_KEY HF_TOKEN \
 LMSTUDIO_URL JAN_URL"
 
 probe_all() {
-  local v br wb rc out qt
+  local v br wb rc out qt desktop_name desktop_session session_type panel
 
   # 1) dependencies
   if command -v python3 >/dev/null 2>&1; then
@@ -296,6 +340,53 @@ probe_all() {
   # 1b) our own config files (install.sh's output)
   [ -f "$SURFACE/surface.conf" ] && kv base.surface_conf b true || kv base.surface_conf b false
   [ -f "$ENV_FILE" ]             && kv base.env_file b true     || kv base.env_file b false
+
+  # 1c) desktop environment detection
+  desktop_name="${XDG_CURRENT_DESKTOP:-}"
+  desktop_session="${DESKTOP_SESSION:-}"
+  session_type="${XDG_SESSION_TYPE:-}"
+  kv desktop.name s "${desktop_name:-unknown}"
+  kv desktop.session s "${desktop_session:-unknown}"
+  kv desktop.session_type s "${session_type:-unknown}"
+
+  # Detect available panel software
+  panel=""
+  if command -v waybar >/dev/null 2>&1; then panel="waybar"; fi
+  if command -v polybar >/dev/null 2>&1; then
+    if [ -n "$panel" ]; then panel="$panel polybar"; else panel="polybar"; fi
+  fi
+  if command -v i3blocks >/dev/null 2>&1; then
+    if [ -n "$panel" ]; then panel="$panel i3blocks"; else panel="i3blocks"; fi
+  fi
+  if command -v xfce4-panel >/dev/null 2>&1; then
+    if [ -n "$panel" ]; then panel="$panel xfce4-panel"; else panel="xfce4-panel"; fi
+  fi
+  if command -v gnome-shell >/dev/null 2>&1; then
+    if [ -n "$panel" ]; then panel="$panel gnome-shell"; else panel="gnome-shell"; fi
+  fi
+  if command -v plasmashell >/dev/null 2>&1; then
+    if [ -n "$panel" ]; then panel="$panel plasmashell"; else panel="plasmashell"; fi
+  fi
+
+  if [ -n "$panel" ]; then
+    kv desktop.panel_available s "$panel"
+  else
+    kv desktop.panel_available z
+  fi
+
+  # Recommend a surface. Three tiers, in this order and for a reason:
+  #
+  #   1. a status bar the user ALREADY runs  — evidence beats inference
+  #   2. what the desktop says it is         — $XDG_CURRENT_DESKTOP
+  #   3. the desktop's shell binary          — for a session that announces nothing
+  #
+  # Tier 2 exists because tier 3 alone was the whole rule at first, and it answered
+  # "tray" for every XFCE, GNOME and KDE session whose panel binary was not on PATH —
+  # exactly the Fedora/Kali users this feature is for. Sandboxed and immutable installs
+  # (Flatpak, Silverblue) routinely hide `gnome-shell` from the caller's PATH, and "tray"
+  # is the worst possible answer there: on GNOME the tray needs an extension the user
+  # does not have, so the recommendation leads nowhere.
+  kv desktop.recommended s "$(recommend_surface)"
 
   # 2) server
   kv server.port n "$PORT"
@@ -623,7 +714,7 @@ act_verify() { # proof, not promises — sets VERIFY_FAIL
     kv verify.server b false
     VERIFY_FAIL=1
   fi
-  local wbar
+  local wbar recommended_cmd
   if wbar="$(find_waybar_config)" && python3 "$WB_EDIT" check --config "$wbar" >/dev/null 2>&1; then
     local out
     out="$("$SURFACE/waybar-usage.sh" 2>/dev/null)"
@@ -635,6 +726,31 @@ act_verify() { # proof, not promises — sets VERIFY_FAIL
       bad "badge feeder produced nothing usable — check jq and the server"
       kv verify.badge b false
       VERIFY_FAIL=1
+    fi
+  else
+    # waybar not set up — name the surface this desktop actually has, and hand over the
+    # command to paste. A bare "waybar not found" is where the non-Arch user gave up.
+    if ! command -v waybar >/dev/null 2>&1; then
+      warn "waybar not found on this system"
+      local surface fmt
+      surface="$(recommend_surface)"
+      fmt="$(surface_format "$surface")"
+      kv verify.no_waybar_suggestion s "$surface"
+      if [ -n "$fmt" ]; then
+        recommended_cmd="python3 $ROOT/server.py usage --format $fmt"
+        case "$surface" in
+          polybar)  say "polybar detected — add a custom/script module running: $recommended_cmd" ;;
+          i3blocks) say "i3blocks detected — add a block running: $recommended_cmd" ;;
+          genmon)   say "XFCE detected — install xfce4-genmon-plugin, then set its command to: $recommended_cmd" ;;
+          argos)    say "GNOME detected — install the Argos (or Executor) extension, then run: $recommended_cmd" ;;
+          plasmoid) say "KDE detected — add the 'Command Output' widget, then set its command to: $recommended_cmd" ;;
+        esac
+        kv verify.no_waybar_command s "$recommended_cmd"
+        say "Full per-desktop instructions: README.md → 'Not on Arch?'"
+      else
+        say "No panel detected — the system tray works everywhere: ./setup.sh do tray"
+        say "(On GNOME the tray needs the AppIndicator extension.)"
+      fi
     fi
   fi
   if pgrep -f usage-tray.py >/dev/null 2>&1; then ok "tray process running"; kv verify.tray b true; fi
