@@ -89,6 +89,12 @@ across browsers.
 
 ## Option C — proactive notifications (`usage-notify.sh`)
 
+> ⚠️ **Superseded (2026-08-12) by `usage-tracker watch --notify`.** This script still
+> works and is kept for anyone already using it, but it carries **its own** 75/90
+> thresholds, so it drifts silently the moment you change them on the server. `watch`
+> reads them from `/v1/usage` and is edge-triggered (it fires when the level *changes*,
+> not on every poll). New behaviour goes there, not here. See `docs/CLI.md` → `watch`.
+
 Sends system notifications when Claude usage crosses thresholds (default: **75% warn** · **90% critical**).
 Like CodexBar's built-in alerts, but on Linux via `notify-send` (libnotify).
 

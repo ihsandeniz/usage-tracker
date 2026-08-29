@@ -274,6 +274,64 @@ class PanelScriptHasNoShadowedFunctions(unittest.TestCase):
                 self.assertEqual([], dupes, f'{name}: shadowed function(s) {dupes}')
 
 
+class TheDocsAgreeWithTheCode(unittest.TestCase):
+    """Claims in prose rot silently; these are the ones with a checkable counterpart.
+
+    All three were found stale in the same audit (2026-08-29): the READMEs told users to
+    run `./setup.sh verify`, which is not a subcommand and answers "unknown option" — a
+    line that had never been executed by whoever wrote it. Two files said "15 adapters"
+    when there were 16. A CLI example showed the output of version 0.3.0.
+    """
+
+    DOCS = ('README.md', 'README.tr.md', 'surface/README.md',
+            'docs/CLI.md', 'docs/WIRE.md', 'docs/WINDOWS.md', 'docs/WINDOWS.tr.md')
+
+    def _docs(self):
+        for name in self.DOCS:
+            path = ROOT / name
+            if path.exists():
+                yield name, path.read_text(encoding='utf-8')
+
+    def test_no_document_invents_a_setup_subcommand(self):
+        """`setup.sh` takes `probe|preview|do|undo`; a step name goes *after* `do`."""
+        import re
+        steps = ('base', 'server', 'waybar', 'widget', 'tray', 'keys', 'verify')
+        pattern = re.compile(r'setup\.sh\s+(' + '|'.join(steps) + r')\b')
+        for name, text in self._docs():
+            with self.subTest(doc=name):
+                self.assertIsNone(pattern.search(text),
+                                  f'{name}: `setup.sh <step>` — the step belongs after `do`')
+
+    def test_the_adapter_count_in_prose_matches_the_registry(self):
+        import re
+        from usage import providers
+        real = len(providers._ADAPTERS)
+        for name, text in self._docs():
+            for found in re.findall(r'(\d+)\s+adapt(?:ör|ers?)', text):
+                with self.subTest(doc=name, wrote=found):
+                    self.assertEqual(real, int(found), f'{name}: says {found}, registry has {real}')
+
+    def test_every_documented_usage_format_exists(self):
+        """A format named in the docs that argparse rejects is a dead instruction."""
+        import re
+        from usage import cli
+        known = set(cli.TEXT_FEEDERS) | {'text', 'json', 'waybar'}
+        for name, text in self._docs():
+            for found in set(re.findall(r'--format\s+([a-z0-9]+)', text)):
+                with self.subTest(doc=name, fmt=found):
+                    self.assertIn(found, known, f'{name}: `--format {found}` does not exist')
+
+    def test_version_examples_are_not_from_an_older_release(self):
+        """A sample transcript pinned to an old version reads as the current output."""
+        import re
+        import server
+        for name, text in self._docs():
+            for found in set(re.findall(r'usage-tracker (\d+\.\d+\.\d+)', text)):
+                with self.subTest(doc=name, wrote=found):
+                    self.assertEqual(server.VERSION, found,
+                                     f'{name}: shows {found}, current is {server.VERSION}')
+
+
 class DesktopRecommendation(unittest.TestCase):
     """`setup.sh probe` has to name a surface this desktop actually has.
 
@@ -315,14 +373,34 @@ class DesktopRecommendation(unittest.TestCase):
     def tearDownClass(cls):
         cls._tmp.cleanup()
 
-    def _recommend(self, desktop):
+    def _run(self, desktop, *args, isolate_home=False):
+        """setup.sh in a stubbed PATH, optionally with a throwaway HOME.
+
+        `isolate_home` matters more than it looks: with the developer's real HOME, this
+        machine already has a waybar config, so `verify` takes the waybar branch and the
+        non-waybar advice — the entire point of the feature — is never reached. Measured
+        while writing these tests: two separate "it prints nothing" results, both of them
+        the harness rather than the product. (The other one was a `grep` symlink that
+        pointed at an alias; see ledger `test/izole-path-eksik-komut`.)
+        """
         import json
         import subprocess
-        env = {'HOME': str(Path.home()), 'PATH': str(self.stub),
+        import tempfile
+        home = Path.home()
+        tmp = None
+        if isolate_home:
+            tmp = tempfile.TemporaryDirectory()
+            self.addCleanup(tmp.cleanup)
+            home = Path(tmp.name)
+        env = {'HOME': str(home), 'PATH': str(self.stub),
                'XDG_CURRENT_DESKTOP': desktop, 'XDG_SESSION_TYPE': 'x11'}
-        proc = subprocess.run(['bash', str(ROOT / 'setup.sh'), 'probe'],
-                              capture_output=True, text=True, env=env, timeout=60)
-        return json.loads(proc.stdout)['desktop']['recommended']
+        proc = subprocess.run(['bash', str(ROOT / 'setup.sh'), *args],
+                              capture_output=True, text=True, env=env, timeout=120)
+        return json.loads(proc.stdout), proc.stderr
+
+    def _recommend(self, desktop):
+        payload, _ = self._run(desktop, 'probe')
+        return payload['desktop']['recommended']
 
     def test_each_desktop_gets_the_panel_it_has(self):
         for desktop, expected in (('XFCE', 'genmon'),
@@ -338,6 +416,30 @@ class DesktopRecommendation(unittest.TestCase):
 
     def test_an_anonymous_session_falls_back_to_the_tray(self):
         self.assertEqual('tray', self._recommend(''))
+
+    def test_verify_hands_over_a_command_the_user_can_paste(self):
+        """The point of the whole feature: a non-Arch user reaches the end of `verify` with
+        something to paste, not with "waybar not found".
+
+        Run with a throwaway HOME — with the developer's own, this machine has a waybar
+        config, `verify` takes the waybar branch, and the advice under test never runs.
+        """
+        for desktop, surface, fmt in (('XFCE', 'genmon', '--format genmon'),
+                                      ('GNOME', 'argos', '--format argos'),
+                                      ('KDE', 'plasmoid', '--format plain')):
+            with self.subTest(desktop=desktop):
+                payload, stderr = self._run(desktop, 'do', 'verify', isolate_home=True)
+                verify = payload.get('verify', {})
+                self.assertEqual(surface, verify.get('no_waybar_suggestion'))
+                self.assertIn(fmt, verify.get('no_waybar_command', ''))
+                # …and the human-facing side says it too, not only the JSON.
+                self.assertIn('waybar not found', stderr)
+                self.assertIn(fmt, stderr)
+
+    def test_verify_offers_the_tray_when_no_panel_is_detected(self):
+        payload, stderr = self._run('', 'do', 'verify', isolate_home=True)
+        self.assertEqual('tray', payload.get('verify', {}).get('no_waybar_suggestion'))
+        self.assertIn('do tray', stderr)
 
 
 class RecommendationsPointSomewhere(unittest.TestCase):

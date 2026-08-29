@@ -189,7 +189,11 @@ interval=30
 
 In all cases, replace `/ABS/PATH` with the actual path to your usage-tracker repo (e.g., `/home/user/usage-tracker`).
 
-The wizard's `./setup.sh verify` step will suggest the best fit for your system.
+The wizard's verify step suggests the best fit for your system and prints the command to paste:
+```bash
+./setup.sh probe        # show the desktop and the recommended surface (touches nothing)
+./setup.sh do verify    # check server and badge; with no waybar, print your desktop's command
+```
 
 ## Provider keys
 

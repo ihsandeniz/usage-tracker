@@ -52,7 +52,7 @@ usage-tracker usage --provider openrouter
 ```
 
 ```
-usage-tracker 0.3.0 · source: server
+usage-tracker 0.5.1 · source: server
 
 Claude Code  [live]
      session         7.0%   resets in 4h32m

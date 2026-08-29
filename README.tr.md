@@ -180,7 +180,11 @@ interval=30
 
 Hepsi için `/MUTLAK/YOL` yerine usage-tracker repo'sunun gerçek yolunu yaz (örneğin `/home/user/usage-tracker`).
 
-Sihirbazın `./setup.sh verify` adımı sisteminize en iyi uygunu önerecektir.
+Sihirbazın doğrulama adımı sisteminize en uygun olanı önerir ve yapıştırılacak komutu basar:
+```bash
+./setup.sh probe        # masaüstünü ve önerilen yüzeyi göster (hiçbir şeye dokunmaz)
+./setup.sh do verify    # sunucuyu/rozeti dener; waybar yoksa senin masaüstünün komutunu yazar
+```
 
 ## Ne izler?
 
@@ -188,7 +192,7 @@ Sihirbazın `./setup.sh verify` adımı sisteminize en iyi uygunu önerecektir.
 |---|---|---|
 | **Harcama** | Bugün / Dün / 30 gün **$** + model bazlı + 30 günlük grafik | `~/.claude/projects/**/*.jsonl` token'ları × gerçek fiyat |
 | **Limit** | Oturum (5s) + Haftalık kullanım %'si, reset geri sayımı | Anthropic'in kendi `/api/oauth/usage` ucu (gerçek), yoksa yerel tahmin |
-| **Sağlayıcılar** | 15 adaptör: gerçek $ (OpenRouter, OpenAI), kredi/kota (ElevenLabs, HuggingFace, Together, Novita, DeepInfra), yerel (Ollama, LM Studio, Jan), lokal-log token (Codex, Aider, Continue, Cody, Windsurf) | her sağlayıcının API'si / yerel dosyaları |
+| **Sağlayıcılar** | 16 adaptör: gerçek $ (OpenRouter, OpenAI, DeepSeek), kredi/kota (ElevenLabs, HuggingFace, Together, Novita, DeepInfra), yerel (Ollama, LM Studio, Jan), lokal-log token (Codex, Aider, Continue, Cody, Windsurf) | her sağlayıcının API'si / yerel dosyaları |
 
 ### Veri gerçek mi?
 
