@@ -79,7 +79,7 @@ whole installation.
 
 That was the behaviour of **older versions**, and it is fixed. From `v0.4.0` on, the browser
 opens by itself. Check your version: it is the first line in the black window
-(`usage-tracker 0.4.1 → http://127.0.0.1:8770`).
+(`usage-tracker 0.5.0 → http://127.0.0.1:8770`).
 
 If your browser still does not open, type the address from that window yourself:
 **http://127.0.0.1:8770**
