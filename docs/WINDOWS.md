@@ -45,6 +45,12 @@ switches languages.
 
 ![the setup wizard](wizard-en.png)
 
+> **Already have a copy installed?** The wizard opens by itself in two cases only: this
+> machine has never been set up, or **the file you downloaded is newer than the installed
+> copy** — the window then prints both versions and the wizard opens so you can update.
+> Running the same version again goes straight to the panel; the wizard is always reachable
+> with `usage-tracker.exe setup`.
+
 The wizard asks about four things. All optional, all undoable:
 
 | Step | What it does | Suggested |
@@ -79,7 +85,7 @@ whole installation.
 
 That was the behaviour of **older versions**, and it is fixed. From `v0.4.0` on, the browser
 opens by itself. Check your version: it is the first line in the black window
-(`usage-tracker 0.5.0 → http://127.0.0.1:8770`).
+(`usage-tracker 0.5.1 → http://127.0.0.1:8770`).
 
 If your browser still does not open, type the address from that window yourself:
 **http://127.0.0.1:8770**

@@ -633,5 +633,145 @@ class TheWindowIsBilingual(_Sandbox):
         self.assertEqual(missing, [])
 
 
+class TheDownloadedCopyIsNewerThanTheInstalledOne(_Sandbox):
+    """The second reason to open the wizard — unasked until 2026-08-29.
+
+    `is_first_run()` answers "has this machine ever been set up", and once it has, the
+    wizard never opened again. So downloading a new release and double-clicking it showed
+    the panel and nothing else: the user reasonably read that as "installed", while the
+    OLD copy stayed in place and kept starting at login. Two versions side by side, and no
+    screen said so. ihsan hit exactly this with v0.5.0 and asked why the wizard was gone —
+    the answer was "by design", and the design was wrong.
+    """
+
+    def _installed(self, version):
+        """A stand-in for the installed binary that answers `--version` like the real one."""
+        target = self.home / 'installed' / 'usage-tracker'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            '#!/usr/bin/env python3\n'
+            'import sys\n'
+            f"if '--version' in sys.argv: print('usage-tracker {version}'); sys.exit(0)\n"
+            'sys.exit(1)\n', encoding='utf-8')
+        target.chmod(0o755)
+        p = mock.patch.object(wizard, 'installed_binary', return_value=target)
+        p.start()
+        self.addCleanup(p.stop)
+        q = mock.patch.object(wizard, 'running_from_install', return_value=False)
+        q.start()
+        self.addCleanup(q.stop)
+        return target
+
+    def test_an_older_installed_copy_means_update(self):
+        self._installed('0.4.1')
+        self.assertEqual('0.4.1', wizard.installed_version())
+        self.assertTrue(wizard.update_available('0.5.0'))
+
+    def test_the_same_version_is_not_an_update(self):
+        self._installed('0.5.0')
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_a_newer_installed_copy_is_not_an_update(self):
+        """Running an old download must not offer to downgrade the good copy."""
+        self._installed('0.9.0')
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_versions_compare_as_numbers_not_as_text(self):
+        """'0.10.0' > '0.9.0'. As strings it is the other way round, and the user with the
+        newest build would be told to update to an older one."""
+        self._installed('0.9.0')
+        self.assertTrue(wizard.update_available('0.10.0'))
+
+    def test_a_binary_that_will_not_answer_is_not_an_update(self):
+        """Unknown is not "out of date". Forcing the wizard on every launch because one
+        subprocess failed would trade the bug for noise."""
+        target = self._installed('0.4.1')
+        target.write_text('#!/bin/sh\nexit 1\n', encoding='utf-8')
+        target.chmod(0o755)
+        self.assertIsNone(wizard.installed_version())
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_nothing_installed_leaves_it_to_the_first_run_path(self):
+        p = mock.patch.object(wizard, 'installed_binary',
+                              return_value=self.home / 'nope' / 'usage-tracker')
+        p.start()
+        self.addCleanup(p.stop)
+        self.assertIsNone(wizard.installed_version())
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_the_installed_copy_running_itself_is_never_an_update(self):
+        self._installed('0.4.1')
+        p = mock.patch.object(wizard, 'running_from_install', return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_a_hanging_binary_cannot_hold_the_panel_hostage(self):
+        target = self._installed('0.4.1')
+        target.write_text('#!/bin/sh\nsleep 30\n', encoding='utf-8')
+        target.chmod(0o755)
+        import time
+        started = time.monotonic()
+        self.assertIsNone(wizard.installed_version(timeout=1.0))
+        self.assertLess(time.monotonic() - started, 10.0)
+
+    def test_version_parsing(self):
+        for text, expected in (('0.5.0', (0, 5, 0)), ('1.2.3', (1, 2, 3)),
+                               ('v0.4.1', (0, 4, 1)), ('0.10.0', (0, 10, 0)),
+                               ('', None), (None, None), ('abc', None),
+                               ('0.x.1', None)):
+            with self.subTest(text=text):
+                self.assertEqual(expected, wizard._version_tuple(text))
+
+
+class ThePortIsAlreadyTaken(unittest.TestCase):
+    """A busy port is the NORMAL state of the update path: the installed copy started at
+    login and the user double-clicks the new download. It used to spill a raw Python
+    traceback and, on Windows, close the window — a screen that says neither what happened
+    nor what to do."""
+
+    def test_the_exit_code_does_not_collide_with_guards_contract(self):
+        import server
+        from usage.cli import LEVEL_EXIT, EXIT_USAGE
+        self.assertNotIn(server.EXIT_PORT_BUSY, set(LEVEL_EXIT.values()))
+        self.assertNotEqual(server.EXIT_PORT_BUSY, EXIT_USAGE)
+        self.assertEqual(69, server.EXIT_PORT_BUSY)          # sysexits EX_UNAVAILABLE
+
+    def test_a_busy_port_reports_it_instead_of_raising(self):
+        import socket
+        import server
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('127.0.0.1', 0))
+        sock.listen(1)
+        self.addCleanup(sock.close)
+        port = sock.getsockname()[1]
+
+        out = io.StringIO()
+        with mock.patch.object(server, 'PORT', port), \
+                mock.patch.object(server, 'EXIT_PORT_BUSY', 69), \
+                mock.patch('sys.stdout', out), mock.patch('sys.stderr', io.StringIO()):
+            code = server.main([])
+        self.assertEqual(69, code)
+        text = out.getvalue()
+        self.assertIn(str(port), text)
+        self.assertIn('already taken', text)                 # English line
+        self.assertIn('zaten dolu', text)                    # ...and Turkish
+
+    def test_it_says_whether_the_squatter_is_one_of_ours(self):
+        """"Open the panel" and "close that program" are opposite instructions; telling a
+        user the wrong one sends them to try the wrong thing."""
+        import server
+        with mock.patch.object(server, '_server_answering', return_value=False):
+            self.assertFalse(server._server_answering())
+        for answering, expect_en in ((True, 'a copy is already running'),
+                                     (False, 'It is not usage-tracker')):
+            with self.subTest(answering=answering):
+                from usage import i18n
+                key = 'port_busy_ours' if answering else 'port_busy_other'
+                self.assertIn(expect_en, i18n.MESSAGES[key]['en'])
+                self.assertTrue(i18n.MESSAGES[key]['tr'])
+
+
 if __name__ == '__main__':
     unittest.main()

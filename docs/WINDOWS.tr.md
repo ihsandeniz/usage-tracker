@@ -44,6 +44,12 @@ düğmesiyle dili değiştirebilirsin.
 
 ![kurulum sihirbazı — Türkçe](wizard-tr.png)
 
+> **Zaten kurulu bir sürümün varsa:** sihirbaz yalnız iki durumda kendiliğinden açılır —
+> makinede hiç kurulum yoksa, ya da **indirdiğin dosya kurulu kopyadan yeniyse** (o zaman
+> pencere iki sürümü de yazar ve sihirbaz güncelleme için açılır). Aynı sürümü tekrar
+> çalıştırırsan doğrudan panel gelir; sihirbaza her zaman `usage-tracker.exe setup` ile
+> ulaşabilirsin.
+
 Sihirbaz dört şey soruyor. Hepsi isteğe bağlı, hepsi geri alınabilir:
 
 | Adım | Ne yapar | Önerim |
@@ -77,7 +83,7 @@ Bitince **"Bitir"** de. Sihirbaz kapanır, panel açılır. Kurulum bitti.
 
 Bu **eski sürümlerin** davranışıydı ve düzeltildi. `v0.4.0` ve üstünde tarayıcı
 kendiliğinden açılır. Sürümünü kontrol et: siyah pencerenin ilk satırında yazıyor
-(`usage-tracker 0.5.0 → http://127.0.0.1:8770`).
+(`usage-tracker 0.5.1 → http://127.0.0.1:8770`).
 
 Tarayıcın yine de açılmadıysa, o pencerede yazan adresi kendin yaz: **http://127.0.0.1:8770**
 

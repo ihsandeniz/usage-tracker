@@ -111,6 +111,77 @@ def is_first_run() -> bool:
         return False
 
 
+def _version_tuple(text):
+    """'0.5.0' → (0, 5, 0). Karşılaştırılamayan her şey None.
+
+    Parça parça sayı: '0.10.0' > '0.9.0' olmalı, string karşılaştırması bunu ters çevirir.
+    """
+    if not text:
+        return None
+    parts = str(text).strip().split('.')
+    out = []
+    for part in parts[:3]:
+        digits = ''.join(ch for ch in part if ch.isdigit())
+        if not digits:
+            return None
+        out.append(int(digits))
+    return tuple(out) if out else None
+
+
+def installed_version(timeout: float = 5.0):
+    """Kurulu kopyanın sürümü, ya da bilinemiyorsa None.
+
+    Ayrı bir sürüm damgası tutulmuyor — aynı gerekçeyle `is_first_run()` de tutmuyor:
+    ikinci bir durum dosyası, gerçeklikten sessizce ayrışabilecek bir yer daha demek.
+    Kurulu ikiliye **kendi sürümünü soruyoruz**; `--version` bu projede v0.2'den beri var,
+    yani eski kurulumlar da cevap verebiliyor.
+
+    Zaman aşımı şart: cevap vermeyen bir ikili, panelin açılışını süresiz bekletemez.
+    """
+    target = installed_binary()
+    try:
+        if not target.exists():
+            return None
+    except OSError:
+        return None
+    try:
+        proc = subprocess.run([str(target), '--version'], capture_output=True, text=True,
+                              timeout=timeout, env=child_env())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    # 'usage-tracker 0.4.1' → son kelime
+    words = (proc.stdout or '').strip().split()
+    return words[-1] if words else None
+
+
+_UNSET = object()
+
+
+def update_available(running_version: str, installed=_UNSET):
+    """Elindeki dosya, kurulu kopyadan yeni mi?
+
+    Bu soru sorulmuyordu ve bedeli görünmezdi: yeni sürümü indirip çift tıklayan kullanıcı
+    paneli görüyor, "kurdum" sanıyor — oysa kurulu kopya ESKİ kalıyor ve oturum açılışında
+    çalışmaya devam eden o. İki sürüm yan yana duruyor, hiçbir yerde yazmıyor.
+
+    Bilinmeyen sürüm **güncelleme sayılmaz**: cevap veremeyen bir ikili yüzünden her
+    açılışta sihirbaz dayatmak, sorunu gürültüyle değiştirmek olurdu.
+    """
+    if running_from_install():
+        return False                       # kurulu kopyanın kendisi çalışıyor
+    # Sürümü çağıran zaten okuduysa tekrar okuma: `installed_version()` bir alt süreç
+    # başlatıyor ve açılış yolunda iki kez çağrılmasının bedeli kullanıcının beklemesi.
+    if installed is _UNSET:
+        installed = installed_version()
+    here = _version_tuple(running_version)
+    there = _version_tuple(installed)
+    if here is None or there is None:
+        return False
+    return here > there
+
+
 def server_alive(timeout: float = 1.5) -> bool:
     try:
         with urllib.request.urlopen(f'{PANEL_URL}/v1/usage', timeout=timeout) as r:

@@ -38,6 +38,30 @@ MESSAGES = {
         'en': 'First run — the setup wizard is opening in your browser.',
         'tr': 'İlk çalıştırma — kurulum sihirbazı tarayıcında açılıyor.',
     },
+    'port_busy': {
+        'en': 'Port {port} is already taken — something is listening there.',
+        'tr': '{port} portu zaten dolu — orayı dinleyen bir program var.',
+    },
+    'port_busy_ours': {
+        'en': 'It answers like usage-tracker, so a copy is already running: {url}',
+        'tr': 'usage-tracker gibi cevap veriyor, yani bir kopya zaten çalışıyor: {url}',
+    },
+    'port_busy_other': {
+        'en': 'It is not usage-tracker. Close that program, or pick another port: '
+              'set USAGE_PORT=8771 and start again.',
+        'tr': 'usage-tracker değil. O programı kapat ya da başka bir port seç: '
+              'USAGE_PORT=8771 ayarlayıp yeniden başlat.',
+    },
+    'update_found': {
+        'en': 'This file is {here}; the copy installed on this machine is {there}.',
+        'tr': 'Bu dosya {here} sürümü; bu makinede kurulu kopya {there} sürümünde.',
+    },
+    'update_wizard': {
+        'en': 'The setup wizard is opening so you can update it. Skip it and the older copy '
+              'keeps starting at login.',
+        'tr': 'Güncelleyebilmen için kurulum sihirbazı açılıyor. Atlarsan oturum açılışında '
+              'eski kopya çalışmaya devam eder.',
+    },
     'wizard_done': {
         'en': 'Setup finished. Opening the panel.',
         'tr': 'Kurulum bitti. Panel açılıyor.',

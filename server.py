@@ -22,9 +22,13 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import engine, settings, viewconfig   # noqa: E402
 
-VERSION = '0.5.0'                                  # tek kaynak: Server başlığı + panel rozeti
+VERSION = '0.5.1'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
+# Port doluyken çıkış kodu. 69 = sysexits.h EX_UNAVAILABLE ("hizmet erişilebilir değil").
+# `guard`'ın 0/1/2/3 tablosuyla ve 64 (yanlış kullanım) ile bilerek çakışmıyor: bir script
+# "sunucu açılamadı"yı "kota kritik" sanmamalı.
+EXIT_PORT_BUSY = 69
 from usage import platform as _paths          # noqa: E402
 # `.resolve()` şart: aşağıdaki traversal koruması bu tabanı **çözülmüş** bir yolla
 # karşılaştırıyor. Taban çözülmemişse ikisi aynı dizini gösterse bile eşleşmez ve panelin
@@ -347,7 +351,25 @@ def main(argv=None):
               f'  USAGE_PRICES fiyat kataloğu dosyası (bkz. python3 -m usage.catalog)\n')
         return 0
 
-    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    try:
+        srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as exc:
+        # Port dolu = neredeyse her zaman "zaten çalışıyor". Bu, güncelleme yolunun
+        # NORMAL hâli: kurulu eski kopya oturum açılışında başlamış, kullanıcı yeni
+        # dosyayı çift tıklıyor. Eskiden buradan çıplak bir Python traceback'i akıyor ve
+        # Windows'ta pencere kapanıyordu — kullanıcıya ne olduğunu da, ne yapacağını da
+        # söylemeyen bir ekran. Yığın izi hâlâ `--debug` ile alınabilir.
+        from usage import i18n
+        for line in i18n.both('port_busy', port=PORT):
+            _say_now(line)
+        if _server_answering():
+            for line in i18n.both('port_busy_ours', url=f'http://{HOST}:{PORT}'):
+                _say_now(f'  {line}')
+        else:
+            for line in i18n.both('port_busy_other'):
+                _say_now(f'  {line}')
+        print(f'({exc.__class__.__name__}: {exc})', file=sys.stderr)
+        return EXIT_PORT_BUSY
     _say_now(f'usage-tracker {VERSION} → http://{HOST}:{PORT}')
 
     # Fiyat kataloğu eksik/bayatsa başlangıçta söyle — panelde görünmesini beklemeden.
@@ -370,6 +392,21 @@ def main(argv=None):
         print('\n' + ' · '.join(i18n.both('stopped')))
         srv.shutdown()
     return 0
+
+
+def _server_answering() -> bool:
+    """Portu tutan şey BİZ miyiz, yoksa yabancı bir program mı?
+
+    Ayrım kullanıcı için her şeydir: kendi kopyamızsa yapacağı şey "tarayıcıda aç",
+    yabancı bir programsa "portu değiştir". İkisine aynı cümleyi söylemek, yanlış
+    olanı denemesine yol açar.
+    """
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f'http://{HOST}:{PORT}/v1/usage', timeout=1.5) as r:
+            return r.status == 200
+    except Exception:
+        return False
 
 
 def _say_now(text: str = '') -> None:
@@ -419,9 +456,26 @@ def _greet_and_open(no_open: bool) -> None:
     import webbrowser
 
     url = f'http://{HOST}:{PORT}'
-    if wizard.is_first_run():
-        for line in i18n.both('first_run'):
-            _say_now(f'  {line}')
+
+    # İki ayrı "sihirbaz lazım" hâli var ve ikincisi 2026-08-29'a kadar sorulmuyordu:
+    #   1) makinede kurulum hiç yok           → ilk çalıştırma
+    #   2) elindeki dosya kurulu kopyadan yeni → GÜNCELLEME
+    # İkincisinin bedeli görünmezdi: yeni sürümü indirip çift tıklayan kullanıcı paneli
+    # görüyor ve "kurdum" sanıyor; oysa kurulu kopya eski kalıyor ve oturum açılışında
+    # çalışan o. İki sürüm yan yana duruyor, hiçbir ekranda yazmıyor. (ihsan v0.5.0'ı
+    # indirdi ve sihirbazın neden açılmadığını sordu — açılmaması "doğru"ydu ve yanlıştı.)
+    installed = None if wizard.is_first_run() else wizard.installed_version()
+    needs_update = wizard.update_available(VERSION, installed)
+
+    if wizard.is_first_run() or needs_update:
+        if needs_update:
+            for line in i18n.both('update_found', here=VERSION, there=installed or '?'):
+                _say_now(f'  {line}')
+            for line in i18n.both('update_wizard'):
+                _say_now(f'  {line}')
+        else:
+            for line in i18n.both('first_run'):
+                _say_now(f'  {line}')
         from usage import wizard_server
         wizard_server.serve()                      # kullanıcı "Bitir" diyene kadar bloklar
         for line in i18n.both('wizard_done'):
