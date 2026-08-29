@@ -17,6 +17,7 @@ import io
 import os
 import urllib.error
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -644,22 +645,33 @@ class TheDownloadedCopyIsNewerThanTheInstalledOne(_Sandbox):
     the answer was "by design", and the design was wrong.
     """
 
-    def _installed(self, version):
-        """A stand-in for the installed binary that answers `--version` like the real one."""
+    def _installed(self, version=None, *, returncode=0, raises=None):
+        """A stand-in for the installed binary.
+
+        The subprocess is mocked rather than written to disk. The first version of this
+        helper wrote `#!/usr/bin/env python3` scripts — which do nothing on Windows, where
+        a shebang is just a first line, so every one of these tests would have failed there
+        for a reason that has nothing to do with the code under test. What matters here is
+        our own logic: how the output is parsed and how versions compare.
+        """
         target = self.home / 'installed' / 'usage-tracker'
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            '#!/usr/bin/env python3\n'
-            'import sys\n'
-            f"if '--version' in sys.argv: print('usage-tracker {version}'); sys.exit(0)\n"
-            'sys.exit(1)\n', encoding='utf-8')
-        target.chmod(0o755)
-        p = mock.patch.object(wizard, 'installed_binary', return_value=target)
-        p.start()
-        self.addCleanup(p.stop)
-        q = mock.patch.object(wizard, 'running_from_install', return_value=False)
-        q.start()
-        self.addCleanup(q.stop)
+        target.write_text('binary', encoding='utf-8')        # only its existence is read
+
+        if raises is not None:
+            runner = mock.Mock(side_effect=raises)
+        else:
+            stdout = f'usage-tracker {version}\n' if version else ''
+            runner = mock.Mock(return_value=subprocess.CompletedProcess(
+                args=[str(target), '--version'], returncode=returncode, stdout=stdout,
+                stderr=''))
+
+        for patch in (mock.patch.object(wizard, 'installed_binary', return_value=target),
+                      mock.patch.object(wizard, 'running_from_install', return_value=False),
+                      mock.patch.object(wizard.subprocess, 'run', runner)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.runner = runner
         return target
 
     def test_an_older_installed_copy_means_update(self):
@@ -685,10 +697,17 @@ class TheDownloadedCopyIsNewerThanTheInstalledOne(_Sandbox):
     def test_a_binary_that_will_not_answer_is_not_an_update(self):
         """Unknown is not "out of date". Forcing the wizard on every launch because one
         subprocess failed would trade the bug for noise."""
-        target = self._installed('0.4.1')
-        target.write_text('#!/bin/sh\nexit 1\n', encoding='utf-8')
-        target.chmod(0o755)
+        self._installed(returncode=1)
         self.assertIsNone(wizard.installed_version())
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_a_binary_that_cannot_be_executed_is_not_an_update(self):
+        self._installed(raises=OSError('not executable'))
+        self.assertIsNone(wizard.installed_version())
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_output_that_is_not_a_version_is_not_an_update(self):
+        self._installed('not-a-number')
         self.assertFalse(wizard.update_available('0.5.0'))
 
     def test_nothing_installed_leaves_it_to_the_first_run_path(self):
@@ -707,13 +726,17 @@ class TheDownloadedCopyIsNewerThanTheInstalledOne(_Sandbox):
         self.assertFalse(wizard.update_available('0.5.0'))
 
     def test_a_hanging_binary_cannot_hold_the_panel_hostage(self):
-        target = self._installed('0.4.1')
-        target.write_text('#!/bin/sh\nsleep 30\n', encoding='utf-8')
-        target.chmod(0o755)
-        import time
-        started = time.monotonic()
-        self.assertIsNone(wizard.installed_version(timeout=1.0))
-        self.assertLess(time.monotonic() - started, 10.0)
+        """A copy that never answers must not block the panel's startup. Asserted through
+        the timeout the call passes down, not by actually sleeping — a test that waits is
+        a test that will one day wait forever on someone's runner."""
+        self._installed(raises=subprocess.TimeoutExpired(cmd='usage-tracker', timeout=5.0))
+        self.assertIsNone(wizard.installed_version())
+        self.assertFalse(wizard.update_available('0.5.0'))
+
+    def test_the_version_query_always_carries_a_timeout(self):
+        self._installed('0.4.1')
+        wizard.installed_version(timeout=2.5)
+        self.assertEqual(2.5, self.runner.call_args.kwargs.get('timeout'))
 
     def test_version_parsing(self):
         for text, expected in (('0.5.0', (0, 5, 0)), ('1.2.3', (1, 2, 3)),
@@ -738,25 +761,45 @@ class ThePortIsAlreadyTaken(unittest.TestCase):
         self.assertEqual(69, server.EXIT_PORT_BUSY)          # sysexits EX_UNAVAILABLE
 
     def test_a_busy_port_reports_it_instead_of_raising(self):
-        import socket
+        """The refusal is provoked by making the constructor raise, NOT by occupying a
+        real port.
+
+        The first version of this test bound a socket and let `main()` collide with it.
+        On Linux that works; on Windows `SO_REUSEADDR` lets a second socket bind the same
+        port, so the server came up, `main()` reached `threading.Event().wait()` and the
+        job hung — both Windows runners sat at ten minutes until they were cancelled. A
+        test that depends on an OS-specific socket rule is measuring the OS, and the
+        behaviour under test here is ours: what we do when the bind fails.
+        """
         import server
-        sock = socket.socket()
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(('127.0.0.1', 0))
-        sock.listen(1)
-        self.addCleanup(sock.close)
-        port = sock.getsockname()[1]
+        port = 65123
+        boom = OSError(98, 'Address already in use')
 
         out = io.StringIO()
         with mock.patch.object(server, 'PORT', port), \
-                mock.patch.object(server, 'EXIT_PORT_BUSY', 69), \
+                mock.patch.object(server, 'ThreadingHTTPServer', side_effect=boom), \
+                mock.patch.object(server, '_server_answering', return_value=False), \
                 mock.patch('sys.stdout', out), mock.patch('sys.stderr', io.StringIO()):
             code = server.main([])
-        self.assertEqual(69, code)
+        self.assertEqual(server.EXIT_PORT_BUSY, code)
         text = out.getvalue()
         self.assertIn(str(port), text)
         self.assertIn('already taken', text)                 # English line
         self.assertIn('zaten dolu', text)                    # ...and Turkish
+        self.assertIn('USAGE_PORT', text)                    # a stranger → change the port
+
+    def test_a_busy_port_held_by_our_own_copy_points_at_the_panel(self):
+        import server
+        out = io.StringIO()
+        with mock.patch.object(server, 'ThreadingHTTPServer',
+                               side_effect=OSError(98, 'Address already in use')), \
+                mock.patch.object(server, '_server_answering', return_value=True), \
+                mock.patch('sys.stdout', out), mock.patch('sys.stderr', io.StringIO()):
+            code = server.main([])
+        self.assertEqual(server.EXIT_PORT_BUSY, code)
+        text = out.getvalue()
+        self.assertIn('already running', text)
+        self.assertNotIn('USAGE_PORT', text)                 # wrong advice for this case
 
     def test_it_says_whether_the_squatter_is_one_of_ours(self):
         """"Open the panel" and "close that program" are opposite instructions; telling a
