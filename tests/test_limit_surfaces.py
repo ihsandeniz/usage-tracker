@@ -294,6 +294,16 @@ class DesktopRecommendation(unittest.TestCase):
     def setUpClass(cls):
         import shutil
         import tempfile
+        # `setup.sh` is the Linux installer: bash, POSIX tools, $XDG_CURRENT_DESKTOP.
+        # CI also runs windows-latest, where this class asked bash to run a shell script
+        # through a symlinked PATH and got an empty stdout it then tried to parse as JSON.
+        # Skipping is the honest outcome — there is no desktop recommendation to make on
+        # a platform the wizard does not target. (`sys.platform` is 'linux' on Linux and
+        # 'darwin' on macOS, where setup.sh is likewise not supported.)
+        if sys.platform != 'linux':
+            raise unittest.SkipTest('setup.sh is the Linux installer')
+        if not shutil.which('bash'):
+            raise unittest.SkipTest('bash not available')
         cls._tmp = tempfile.TemporaryDirectory()
         cls.stub = Path(cls._tmp.name)
         for name in cls.STUBBED:
@@ -329,6 +339,12 @@ class DesktopRecommendation(unittest.TestCase):
     def test_an_anonymous_session_falls_back_to_the_tray(self):
         self.assertEqual('tray', self._recommend(''))
 
+
+class RecommendationsPointSomewhere(unittest.TestCase):
+    """Kept out of the class above on purpose: that one needs bash and skips on Windows,
+    and this check — that every surface the wizard can name is a format the CLI can
+    actually emit — is worth running on every platform CI covers."""
+
     def test_every_recommendation_maps_to_a_real_cli_format(self):
         """A recommendation the CLI cannot produce is a dead end in the wizard."""
         mapping = {'polybar': 'polybar', 'i3blocks': 'i3blocks', 'genmon': 'genmon',
@@ -336,6 +352,14 @@ class DesktopRecommendation(unittest.TestCase):
         for surface, fmt in mapping.items():
             with self.subTest(surface=surface):
                 self.assertIn(fmt, cli.TEXT_FEEDERS)
+
+    def test_setup_sh_names_the_same_surfaces_the_cli_knows(self):
+        """`recommend_surface()` and `surface_format()` live in setup.sh; if someone adds
+        a surface there and not here, the wizard prints a command that does not exist."""
+        script = (ROOT / 'setup.sh').read_text(encoding='utf-8')
+        for surface in ('polybar', 'i3blocks', 'genmon', 'argos', 'plasmoid', 'tray', 'waybar'):
+            with self.subTest(surface=surface):
+                self.assertIn(f"'{surface}\\n'", script)
 
 
 if __name__ == '__main__':

@@ -869,7 +869,12 @@ class TestOllama(FixtureCase):
         """Başarılı yanıt → local kartı açılır."""
         monkeypatch.setenv('HOME', str(tmp_path))
 
-        with patch('usage.providers.ollama._get') as mock_get:
+        # `shutil.which` de yamalanmak ZORUNDA: bu dosyanın geri kalanı yamalıyor, yalnız
+        # bu test atlıyordu. Sonuç: ollama KURULU olan makinede yeşil, olmayanda kırmızı —
+        # ve CI'ın Windows runner'ında kurulu değil. Hermetik olduğunu söyleyen bir test,
+        # yamalamayı unuttuğu yerde makineyi ölçer.
+        with patch('shutil.which', return_value='/usr/bin/ollama'), \
+                patch('usage.providers.ollama._get') as mock_get:
             mock_get.side_effect = [
                 {'models': [
                     {'name': 'llama2', 'size': 1000000},
@@ -954,7 +959,9 @@ class TestLMStudio(FixtureCase):
         monkeypatch.setenv('HOME', str(tmp_path))
         monkeypatch.setenv('LMSTUDIO_URL', 'http://127.0.0.1:1234')
 
-        with patch('usage.providers.lmstudio._get') as mock_get:
+        # Aynı kusur (bkz. test_ollama_success): `lms` kurulu olmayan makinede kart açılmaz.
+        with patch('shutil.which', return_value='/usr/bin/lms'), \
+                patch('usage.providers.lmstudio._get') as mock_get:
             mock_get.return_value = {
                 'data': [
                     {'id': 'model1', 'type': 'language', 'state': 'loaded'},
