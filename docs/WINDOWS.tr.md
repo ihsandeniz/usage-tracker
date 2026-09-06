@@ -83,7 +83,7 @@ Bitince **"Bitir"** de. Sihirbaz kapanır, panel açılır. Kurulum bitti.
 
 Bu **eski sürümlerin** davranışıydı ve düzeltildi. `v0.4.0` ve üstünde tarayıcı
 kendiliğinden açılır. Sürümünü kontrol et: siyah pencerenin ilk satırında yazıyor
-(`usage-tracker 0.5.2 → http://127.0.0.1:8770`).
+(`usage-tracker 0.5.3 → http://127.0.0.1:8770`).
 
 Tarayıcın yine de açılmadıysa, o pencerede yazan adresi kendin yaz: **http://127.0.0.1:8770**
 

@@ -217,3 +217,61 @@ class CatalogStatusReachesTheWire(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TheCacheKeyIsNotRecomputedPerLookup(_IsolatedCatalog):
+    """Validating the price cache must not cost more than the work it protects.
+
+    resolve_price() called _cache_key() on every lookup, and _cache_key() reloads the
+    catalogue, walks every provider's model dict to sum its size, and stats the overrides
+    file. Measured 2026-09-06 over a real 30-day window (42,912 turns): _cache_key() 817 ms
+    of resolve_price()'s 768 ms of compute_spend()'s 939 ms. Nearly the whole cost of the
+    spend figure was proving that a cache was still valid — not using it.
+
+    Counting loads rather than timing: a stopwatch test would go red on a slow runner and
+    green on a fast one regardless of whether the bug came back.
+    """
+
+    def test_repeated_lookups_load_the_catalogue_once(self):
+        self.write_bundle({'anthropic': {'claude-opus-5': {
+            'input': 15, 'output': 75, 'cache_read': 1.5, 'cache_write': 18.75}}})
+        pricing.invalidate()
+
+        real_load, calls = catalog.load, []
+
+        def counting_load(*a, **kw):
+            calls.append(1)
+            return real_load(*a, **kw)
+
+        catalog.load = counting_load
+        self.addCleanup(lambda: setattr(catalog, 'load', real_load))
+        try:
+            for _ in range(500):
+                pricing.resolve_price('claude-opus-5')
+        finally:
+            catalog.load = real_load
+
+        # One for the key, one for building the catalogue itself is acceptable; 500 is the
+        # bug. The bound is loose on purpose — this guards an order of magnitude, not a
+        # particular implementation.
+        self.assertLessEqual(len(calls), 5,
+                             f'{len(calls)} catalogue loads for 500 lookups — the key is '
+                             f'being recomputed per lookup again')
+
+    def test_invalidate_makes_the_next_lookup_see_a_changed_file(self):
+        # Without dropping the key cache too, a price change inside the TTL would be
+        # invisible: the catalogue would rebuild against the stale key and return the old
+        # number. Tools and tests rely on invalidate() being immediate.
+        self.write_bundle({'anthropic': {'claude-opus-5': {
+            'input': 15, 'output': 75, 'cache_read': 1.5, 'cache_write': 18.75}}})
+        pricing.invalidate()
+        before, _ = pricing.resolve_price('claude-opus-5')
+        self.assertEqual(before['input'], 15)
+
+        self.write_overrides({'claude-opus-5': {
+            'input': 99, 'output': 99, 'cache_read': 99, 'cache_write': 99}})
+        pricing.invalidate()
+        after, source = pricing.resolve_price('claude-opus-5')
+        self.assertEqual(after['input'], 99,
+                         'invalidate() must drop the key cache, not just the catalogue')
+        self.assertEqual(source, 'estimate')

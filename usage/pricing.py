@@ -17,8 +17,10 @@ Bir override'ın **son kullanma tarihi** olabilir:
 Stdlib-only. Dosya-mtime cache'li (katalog kaynağı değişince otomatik yeniden yükler).
 """
 import json
+import os
 import sys
 import threading
+import time
 from datetime import date
 from pathlib import Path
 
@@ -133,10 +135,30 @@ def _build_catalog() -> dict:
             'override_sched': override_sched, 'tier': tier}
 
 
+# Anahtarın kendisi kısa ömürlü olarak tutulur, çünkü onu HESAPLAMAK koruduğu işten
+# pahalıydı: `catalog.load()` + her sağlayıcının model sözlüğünü saymak + bir dosya
+# stat'ı, ve bu `resolve_price()`'ın HER çağrısında. Ölçüm (2026-09-06, 30 günlük
+# harcama = 42.912 turn): `_cache_key()` 817 ms, `resolve_price()` 768 ms,
+# `compute_spend(30)` 939 ms — yani harcama hesabının neredeyse tamamı, fiyatı bulmak
+# değil, fiyat önbelleğinin hâlâ geçerli olduğunu doğrulamaktı.
+#
+# TTL bilerek kısa: katalog günde bir tazeleniyor (Hermes), override dosyası elle
+# düzenleniyor. Test ve araçlar yolları değiştirdikten sonra zaten `invalidate()`
+# çağırıyor — o yol anlık kalsın diye bu önbelleği de düşürür.
+_KEY_TTL = float(os.environ.get('USAGE_PRICE_KEY_TTL', '5'))
+_KEY_CACHE = {'at': 0.0, 'key': None}
+
+
 def _cache_key():
+    if _KEY_TTL > 0:
+        cached = _KEY_CACHE['key']
+        if cached is not None and (time.monotonic() - _KEY_CACHE['at']) < _KEY_TTL:
+            return cached
     src = catalog.load()
-    return (src['source'], src['meta'].get('generatedAt'),
-            sum(len(m) for m in src['providers'].values()), _mtime(OVERRIDES_PATH))
+    key = (src['source'], src['meta'].get('generatedAt'),
+           sum(len(m) for m in src['providers'].values()), _mtime(OVERRIDES_PATH))
+    _KEY_CACHE['key'], _KEY_CACHE['at'] = key, time.monotonic()
+    return key
 
 
 def invalidate() -> None:
@@ -144,6 +166,9 @@ def invalidate() -> None:
     global _CATALOG_CACHE
     with _LOCK:
         _CATALOG_CACHE = None
+        # Anahtar önbelleği de düşmeli: yalnız katalog düşerse, bir sonraki çağrı TTL
+        # içindeki ESKİ anahtarla yeniden inşa eder ve değişen dosyayı görmezdi.
+        _KEY_CACHE['key'], _KEY_CACHE['at'] = None, 0.0
     catalog.invalidate()
 
 
