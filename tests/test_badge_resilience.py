@@ -31,8 +31,20 @@ FEEDER = ROOT / 'surface' / 'waybar-usage.sh'
 sys.path.insert(0, str(ROOT / 'packaging'))
 
 
+# The feeder is a bash script driving curl and jq — a Linux panel surface. Windows reaches
+# the same numbers through `usage --format waybar`, which needs no shell (see docs/CLI.md),
+# so running these here would test a path that platform does not have. Checking for jq is
+# not enough: the GitHub Windows runner ships it, so the tests ran and failed on shell
+# differences instead of skipping. (ledger: test/isletim-sistemine-bagli-kurulum-testi-asilir)
+_NOT_LINUX_SURFACE = os.name == 'nt'
+
+
 def _serving(payload: bytes):
-    """A loopback server answering every GET with `payload`. Returns (url, shutdown)."""
+    """A loopback server answering every GET with `payload`. Returns (url, stop).
+
+    `stop` closes the listening socket as well as ending the loop — `shutdown()` alone
+    leaves the socket open, which Windows reports as a ResourceWarning for every case.
+    """
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
@@ -46,9 +58,15 @@ def _serving(payload: bytes):
 
     srv = HTTPServer(('127.0.0.1', 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    return f'http://127.0.0.1:{srv.server_port}', srv.shutdown
+
+    def stop():
+        srv.shutdown()
+        srv.server_close()
+
+    return f'http://127.0.0.1:{srv.server_port}', stop
 
 
+@unittest.skipIf(_NOT_LINUX_SURFACE, 'the waybar feeder is a Linux panel surface')
 @unittest.skipUnless(shutil.which('jq'), 'the feeder needs jq')
 @unittest.skipUnless(shutil.which('curl'), 'the feeder needs curl')
 class TheBadgeNeverPrintsNothing(unittest.TestCase):
@@ -107,6 +125,7 @@ class TheBadgeNeverPrintsNothing(unittest.TestCase):
         self.assertEqual(obj.get('class'), 'off')
 
 
+@unittest.skipIf(_NOT_LINUX_SURFACE, 'the waybar feeder is a Linux panel surface')
 @unittest.skipUnless(shutil.which('jq'), 'the feeder needs jq')
 @unittest.skipUnless(shutil.which('curl'), 'the feeder needs curl')
 class TheBadgeFallsBackToItsLastReading(unittest.TestCase):
