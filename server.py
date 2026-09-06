@@ -14,6 +14,8 @@ Güvenlik: yalnız loopback · credential dosyalarına dokunmaz · SADECE ~/.cla
 import json
 import os
 import sys
+import threading
+import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +38,84 @@ from usage import platform as _paths          # noqa: E402
 # budur: `%TEMP%` çoğu kurulumda 8.3 kısa adıdır (`RUNNER~1`), `sys._MEIPASS` onu taşır,
 # `resolve()` ise uzun adı verir.
 WEBD = (_paths.resource_dir() / 'web').resolve()   # donmuş pakette sys._MEIPASS/web
+
+
+# ── /v1/usage önbelleği: tek uçuş + kısa TTL ────────────────────────────────
+# `engine.usage_wire()` ~1.2 GB JSONL tarar (bu makinede 1140 dosya) ve ölçümde 1,9-11 sn
+# sürüyor. Dört yüzey (waybar rozeti · tepsi · panel · widget) aynı veriyi bağımsız
+# çekiyor; ThreadingHTTPServer istekleri ayrı thread'e alsa da tarama CPU-bound olduğu için
+# GIL onları serileştiriyor — 5 eşzamanlı istek ölçümde 12 sn'ye çıktı (seri hâlin 3,4 katı).
+# waybar besleyicisi 3 sn'de kesiyordu → rozet boşalıyor, sunucuda BrokenPipeError birikiyordu
+# (7 günde 6742 kayıt). Kilit **tek uçuş** sağlar: eşzamanlı istekler ikinci bir taramayı
+# başlatmaz, ilkinin sonucunu paylaşır.
+#
+# TTL tek başına yetmez: waybar 30 sn'de bir yokluyor, yani 10 sn'lik bir pencereyle HER
+# turda soğuk önbellek bulup yine 2-11 sn beklerdi. Bu yüzden TTL dolduğunda istek
+# bekletilmez — eldeki ölçüm hemen döner, yenileme ARKA PLANDA koşar (stale-while-revalidate).
+# Yüzeylerin gördüğü veri en fazla bir tur eskir; karşılığında hiçbir yüzey taramayı beklemez.
+# `_MAX_AGE` bunun sınırı: sunucu bu kadar süredir tazeleyemiyorsa artık eski sayıyı sessizce
+# sunmak yanlış olur — istek beklesin ve gerçeği ölçsün.
+_WIRE_TTL = float(os.environ.get('USAGE_WIRE_TTL', '20'))        # 0 = önbelleği kapat
+_WIRE_MAX_AGE = float(os.environ.get('USAGE_WIRE_MAX_AGE', '180'))
+_WIRE_LOCK = threading.Lock()            # tek uçuş: eşzamanlı istekler iki tarama başlatmaz
+_WIRE_CACHE = {'at': 0.0, 'wire': None, 'refreshing': False}
+
+
+def _measure_wire():
+    """Taramayı yap ve önbelleğe damgala. Damga BİTİŞTE basılır — başlangıç anını yazmak,
+    11 sn süren bir taramanın sonucunu doğduğu anda 11 sn bayat ilan ederdi."""
+    wire = engine.usage_wire()
+    _WIRE_CACHE['wire'], _WIRE_CACHE['at'] = wire, time.monotonic()
+    return wire
+
+
+def _refresh_in_background():
+    if _WIRE_CACHE['refreshing']:
+        return
+    _WIRE_CACHE['refreshing'] = True
+
+    def run():
+        try:
+            with _WIRE_LOCK:
+                _measure_wire()
+        except Exception:
+            # Arka plan yenilemesi sunucuyu düşürmemeli; eldeki ölçüm sunulmaya devam eder
+            # ve _MAX_AGE'e ulaşınca bir sonraki istek senkron ölçüp gerçeği getirir.
+            pass
+        finally:
+            _WIRE_CACHE['refreshing'] = False
+
+    threading.Thread(target=run, name='wire-refresh', daemon=True).start()
+
+
+def cached_wire():
+    """`engine.usage_wire()` — paylaşılmış, tek uçuşlu, TTL sonrası arka planda tazelenen."""
+    if _WIRE_TTL <= 0:
+        return engine.usage_wire()
+
+    wire, age = _WIRE_CACHE['wire'], time.monotonic() - _WIRE_CACHE['at']
+    if wire is not None:
+        if age < _WIRE_TTL:
+            return wire
+        if age < _WIRE_MAX_AGE:
+            _refresh_in_background()
+            return wire                  # bekletme yok — bir sonraki tur tazesini görür
+
+    with _WIRE_LOCK:
+        # Kilidi beklerken başkası ölçmüş olabilir; ikinci kontrol taramayı tekrarlamaz.
+        wire, age = _WIRE_CACHE['wire'], time.monotonic() - _WIRE_CACHE['at']
+        if wire is not None and age < _WIRE_TTL:
+            return wire
+        return _measure_wire()
+
+
+def invalidate_wire():
+    """Eşik/görünüm/kalibrasyon yazıldı — sonraki istek taze ölçsün.
+
+    Yazan uç önbelleği temizlemezse kullanıcı eşiği 60'a çeker ve rozet TTL boyunca eski
+    sınıfı gösterir; ayarın "kaydedilmediği" sanılır.
+    """
+    _WIRE_CACHE['wire'], _WIRE_CACHE['at'] = None, 0.0
 
 
 def static_file(path: str, root=None):
@@ -194,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ('/v1/usage', '/v1/usage/'):
             # Tam liste mi istersin (seçim UI için) ya da süzülü (waybar/panel/widget)?
-            wire = engine.usage_wire()
+            wire = cached_wire()
             # ?all=1 query varsa süzME (tüm sağlayıcılar — config UI için)
             if parse_qs(parsed.query).get('all', ['0'])[0] == '1':
                 self._json(200, wire); return
@@ -211,7 +291,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in ('/api/view-config', '/api/view-config/'):
             # Config + available sağlayıcıları dön (GET only)
             cfg = viewconfig.get_config()
-            wire = engine.usage_wire()
+            wire = cached_wire()
             available = [{'id': p.get('id'), 'name': p.get('name')}
                         for p in (wire.get('providers') or [])
                         if isinstance(p, dict) and p.get('id')]
@@ -259,6 +339,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(400, 'invalid request body'); return
             ok, err = settings.save_settings(req)
             if ok:
+                invalidate_wire()          # eşik değişti — rozet eski sınıfı taşımasın
                 self._json(200, {'ok': True, 'settings': settings.get_settings()})
             else:
                 self._error(400, err)
@@ -271,6 +352,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._error(400, 'expected Content-Type: application/json'); return
             req = self._read_json_body()
             ok, err = engine.calibrate_usage(req)
+            if ok:
+                invalidate_wire()          # çapa değişti — yüzdeler yeniden hesaplansın
             self._json(400 if not ok else 200, {'ok': ok, 'error': err}); return
 
         if path in ('/api/view-config', '/api/view-config/'):
