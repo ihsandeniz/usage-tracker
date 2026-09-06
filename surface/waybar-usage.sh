@@ -4,9 +4,12 @@
 # Standalone — the badge works on its own. Install (add to waybar config.jsonc):
 #   "custom/usage": {
 #     "exec": "/ABS/PATH/surface/waybar-usage.sh",
-#     "return-type": "json", "interval": 30,
-#     "on-click": "/ABS/PATH/surface/usage-widget toggle"
+#     "return-type": "json", "interval": 30, "signal": 2,
+#     "on-click": "/ABS/PATH/surface/usage-widget toggle",
+#     "on-click-right": "pkill -SIGRTMIN+2 waybar"
 #   }
+# Pick a "signal" number no other module uses — waybar delivers SIGRTMIN+N to every module
+# that declares it. `setup.sh do waybar` picks a free one; a hand-copied snippet cannot.
 # then add "custom/usage" to a modules list.  style.css: #custom-usage.crit {...}
 #
 # A SECOND badge for another provider — same script, one flag:
@@ -34,25 +37,61 @@ _env_url="${USAGE_URL:-}"          # env wins over the config file, not the othe
 [ -n "$_env_url" ] && USAGE_URL="$_env_url"
 URL="${USAGE_URL:-http://127.0.0.1:8770}/v1/usage"
 
-response="$(curl -s --max-time 3 -w '\n%{http_code}' "$URL" 2>/dev/null)"
+# ── Son iyi ölçümün kopyası ──────────────────────────────────────────────────
+# Sunucu bir turu kaçırdığında rozetin BOŞALMAMASI için. Yoksa waybar `interval`i kadar
+# (30 sn) hiçbir sayı görünmez ve arka arkaya kaçan turlarda rozet dakikalarca ölü kalır —
+# oysa 40 sn önceki yüzde, hiç yüzde olmamasından iyidir. Bayatlık gizlenmez: manşete `⋯`
+# ve tooltip'e ölçümün yaşı basılır.
+CACHE_MAX_AGE="${USAGE_CACHE_MAX_AGE:-600}"        # bundan eskisi artık gösterilmez
+CACHE="${XDG_RUNTIME_DIR:-/tmp}/usage-waybar-${PROVIDER}.json"
+
+emit_offline() {   # $1 = tooltip'e eklenecek sebep
+  # Elde bayat ama makul yaşta bir ölçüm varsa onu göster; yoksa ○ —
+  if [ -s "$CACHE" ]; then
+    _now="$(date +%s)"
+    _mt="$(stat -c %Y "$CACHE" 2>/dev/null || echo 0)"
+    _age=$(( _now - _mt ))
+    if [ "$_age" -ge 0 ] && [ "$_age" -lt "$CACHE_MAX_AGE" ]; then
+      if jq -c --arg age "$_age" --arg why "$1" \
+           '.text = (.text + " ⋯")
+            | .tooltip = ((.tooltip // "") + "\n<span color=\"#8fb6d6\">⋯ " + $why
+                          + " — gösterilen ölçüm " + $age + " sn önceki</span>")' \
+           "$CACHE" 2>/dev/null; then
+        return 0
+      fi
+    fi
+  fi
+  # `\\n` bilerek: printf burada GERÇEK satır sonu basarsa JSON string'in içinde ham newline
+  # kalır ve gövde geçersiz olur (waybar modülü gizler). Tooltip'in satır sonu JSON'un
+  # kendi kaçışıdır — printf'in değil.
+  printf '{"text":"○ —","tooltip":"usage-tracker offline (%s)\\n%s","class":"off"}\n' "$URL" "$1"
+}
+
+# --max-time 3'tü: bu makinede /v1/usage ölçümde 1,9-11 sn sürüyor (1,2 GB JSONL taraması),
+# yani turların yarısından fazlası kesiliyor ve rozet boşalıyordu. Kesilen istek sunucuda
+# BrokenPipeError bırakıyor ve tarama boşa gidiyordu — yani sabırsızlık yükü azaltmıyor,
+# artırıyordu. waybar `interval` 30 sn olduğu için 12 sn'lik bir tavan turları üst üste
+# bindirmez. `--connect-timeout` ayrı: sunucu HİÇ dinlemiyorsa 12 sn beklemenin anlamı yok.
+response="$(curl -s --connect-timeout 2 --max-time "${USAGE_HTTP_TIMEOUT:-12}" \
+                 -w '\n%{http_code}' "$URL" 2>/dev/null)"
 http_code="$(echo "$response" | tail -n1)"
 json="$(echo "$response" | head -n-1)"
 
 # Status 200 değilse veya boş yanıt → offline
 if [ "$http_code" != "200" ] || [ -z "$json" ]; then
-  printf '{"text":"○ —","tooltip":"usage-tracker offline (%s)","class":"off"}\n' "$URL"
+  emit_offline "sunucu yanıt vermedi"
   exit 0
 fi
 
-# JSON geçerliliğini doğrula (bozuk JSON/HTML hata sayfası) — jq -e . fail → offline
+# JSON geçerliliğini doğrula (bozuk JSON/HTML hata sayfası, yarım kesilmiş gövde)
 if ! echo "$json" | jq -e . >/dev/null 2>&1; then
-  printf '{"text":"○ —","tooltip":"usage-tracker offline (%s)","class":"off"}\n' "$URL"
+  emit_offline "yanıt geçerli JSON değil"
   exit 0
 fi
 
 # Generic zenginleştirilmiş tooltip — tüm sağlayıcılar üzerinde döngü
 # Kritik: opsiyonel alan erişiminde //null guard + select(.) kullan → boş stream hiç output vermez
-echo "$json" | jq -c --arg pid "$PROVIDER" '
+out="$(echo "$json" | jq -c --arg pid "$PROVIDER" '
   def money(v; curr):
     if v == null then "—"
     else
@@ -191,4 +230,27 @@ echo "$json" | jq -c --arg pid "$PROVIDER" '
            then "\n<span color=\"#45475a\">──────────────────────</span>" + $others_line
            else "" end))
     }
-'
+' 2>/dev/null)"
+
+# Besleyici SESSİZCE boş dönmemeli. jq hata verirse (beklenmeyen wire şekli — ör. `providers`
+# null/eksikse "Cannot iterate over null") çıktı stdout'a hiç düşmez, waybar boş satırı
+# "modülü gizle" diye okur ve rozet tamamen kaybolur. Ölçüldü (2026-09-06): `{"providers":null}`
+# besleyen sahte sunucu rozeti yok ediyordu. Kaybolmak yerine ya son ölçüm ya `○ —` görünsün —
+# rozetin görevi zaten "duvara ne kadar yakınım"ı söylemek; sessizce yokolmak yanıltıcıdır.
+if [ -z "${out:-}" ] || ! printf '%s' "$out" | jq -e . >/dev/null 2>&1; then
+  emit_offline "besleyici çıktı üretemedi (beklenmeyen veri şekli)"
+  exit 0
+fi
+
+printf '%s\n' "$out"
+
+# Cache'i ATOMİK yaz: waybar bu dosyayı bir sonraki turda okuyacak; yarım yazılmış bir dosya
+# `jq`yi düşürür ve bu kez de bayat yol çalışmaz. Yazma başarısızsa (tmpfs dolu, salt-okunur)
+# rozet zaten basıldı — sessizce geç.
+if _tmp="$(mktemp "${CACHE}.XXXXXX" 2>/dev/null)"; then
+  if printf '%s\n' "$out" > "$_tmp" 2>/dev/null; then
+    mv -f "$_tmp" "$CACHE" 2>/dev/null || rm -f "$_tmp" 2>/dev/null
+  else
+    rm -f "$_tmp" 2>/dev/null
+  fi
+fi
