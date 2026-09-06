@@ -230,11 +230,15 @@ qt_binding() { # which Qt binding the tray can use, if any
 
 waybar_snippet() {
   cat <<EOF
+  // "signal": right-click refreshes the badge without waiting out the interval.
+  // If another module in your config already uses 2, change both numbers below.
   "custom/usage": {
     "exec": "$SURFACE/waybar-usage.sh",
     "return-type": "json",
     "interval": 30,
-    "on-click": "$SURFACE/usage-widget toggle"
+    "signal": 2,
+    "on-click": "$SURFACE/usage-widget toggle",
+    "on-click-right": "pkill -SIGRTMIN+2 waybar"
   },
 EOF
 }

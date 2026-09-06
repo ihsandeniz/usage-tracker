@@ -24,7 +24,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import engine, settings, viewconfig   # noqa: E402
 
-VERSION = '0.5.1'                                  # tek kaynak: Server başlığı + panel rozeti
+VERSION = '0.5.2'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
 # Port doluyken çıkış kodu. 69 = sysexits.h EX_UNAVAILABLE ("hizmet erişilebilir değil").

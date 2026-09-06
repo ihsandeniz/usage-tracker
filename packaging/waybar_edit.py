@@ -168,6 +168,30 @@ def detect_indent(text: str) -> str:
 
 
 # ── operations ──────────────────────────────────────────────────────────────
+def free_signal(doc) -> int:
+    """Lowest SIGRTMIN offset (1..30) no module in this config already claims; 0 if none.
+
+    The right-click refresh is `pkill -SIGRTMIN+N waybar`, and waybar hands that signal to
+    EVERY module declaring it — so a hardcoded N would silently re-run a stranger's module
+    on someone else's machine. Which numbers are taken is knowable at install time; guessing
+    is the only way to get it wrong. (Measured 2026-09-06: this author's own config already
+    used 1.)
+    """
+    used, stack = set(), [doc]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for k, v in node.items():
+                # `bool` is an `int` in Python — "signal": true would otherwise reserve 1
+                if k == "signal" and isinstance(v, int) and not isinstance(v, bool):
+                    used.add(v)
+                else:
+                    stack.append(v)
+        elif isinstance(node, list):
+            stack.extend(node)
+    return next((n for n in range(1, 31) if n not in used), 0)
+
+
 def op_add(text: str, exec_path: str, click_path: str, list_name: str):
     doc = parse(text)  # raises on garbage → caller maps to exit 3
     bar = bars(doc)
@@ -196,13 +220,20 @@ def op_add(text: str, exec_path: str, click_path: str, list_name: str):
 
     ind = detect_indent(text)
     base = ind * key_depth
+    sig = free_signal(doc)
     block = (
         f'\n{base}"{MODULE}": {{\n'
         f'{base}{ind}"exec": {json.dumps(exec_path, ensure_ascii=False)},\n'
         f'{base}{ind}"return-type": "json",\n'
         f'{base}{ind}"interval": 30'
+        + (f',\n{base}{ind}"signal": {sig}' if sig else "")
         + (f',\n{base}{ind}"on-click": {json.dumps(click_path, ensure_ascii=False)}'
            if click_path else "")
+        # Right-click refreshes the badge now instead of waiting out the 30s interval — the
+        # reflex people already have when a badge looks stuck. Omitted entirely when every
+        # signal number is taken: a refresh that fires someone else's module is worse than
+        # no refresh.
+        + (f',\n{base}{ind}"on-click-right": "pkill -SIGRTMIN+{sig} waybar"' if sig else "")
         + f"\n{base}}},"
     )
 

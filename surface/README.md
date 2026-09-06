@@ -32,9 +32,16 @@ WIDGET_CLASS="usage-tracker-widget"
   "exec": "/ABS/PATH/surface/waybar-usage.sh",
   "return-type": "json",
   "interval": 30,
-  "on-click": "/ABS/PATH/surface/usage-widget toggle"
+  "signal": 2,
+  "on-click": "/ABS/PATH/surface/usage-widget toggle",
+  "on-click-right": "pkill -SIGRTMIN+2 waybar"
 }
 ```
+
+`signal` + `on-click-right` make a right-click refresh the badge instead of waiting out the
+30s interval. **Pick a number no other module in your config uses** — waybar delivers
+`SIGRTMIN+N` to *every* module that declares it, so a shared number refreshes both.
+`setup.sh do waybar` picks a free one for you; this hand-written snippet cannot.
 
 Add `"custom/usage"` to a `modules-*` list, and to `style.css`:
 
