@@ -43,6 +43,14 @@ BASE = os.environ.get('USAGE_URL', 'http://127.0.0.1:8770').rstrip('/')
 USAGE_URL = BASE + '/v1/usage'
 INTERVAL = int(os.environ.get('TRAY_INTERVAL', '30')) * 1000  # ms
 
+# Tepsiden başlatılan kardeş süreçlerin (usage-widget) hata çıktısı buraya düşer.
+# DEVNULL'a yazmak "hiçbir şey olmadı" ile "sessizce patladı"yı aynı gösteriyordu.
+LOG_PATH = Path(os.environ.get('XDG_STATE_HOME')
+                or (Path.home() / '.local' / 'state')) / 'usage-tracker' / 'tray.log'
+# Kardeş script bu süre içinde ölürse çıkış kodunu görürüz. Menü tıklamasını
+# bekletiyor, o yüzden kısa: başarı yolunda ~0,1-0,3 sn'de zaten döner.
+SURFACE_WAIT_SEC = float(os.environ.get('TRAY_SURFACE_WAIT', '1.0'))
+
 # ── Qt binding shim (PyQt5 → PySide6) ────────────────────────────────────────
 _QT = None
 try:
@@ -291,24 +299,90 @@ def _make_icon(cls):
     return QtGui.QIcon(pm)
 
 
+def _log(satir):
+    """Tepsi olayını dosyaya ekle. Yazamazsak sessiz kal — log uğruna tepsi ölmez."""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open('a', encoding='utf-8') as fh:
+            fh.write('%s  %s\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), satir))
+    except OSError:
+        pass
+
+
+def _son_log_satiri():
+    """Kardeş scriptin son stderr satırı — kullanıcıya gösterilecek kısa sebep."""
+    try:
+        satirlar = [s.strip() for s in LOG_PATH.read_text(
+            encoding='utf-8', errors='replace').splitlines() if s.strip()]
+    except OSError:
+        return ''
+    return satirlar[-1] if satirlar else ''
+
+
 def _run_surface(arg):
-    """usage-widget kardeş scriptini çağır (varsa)."""
+    """usage-widget kardeş scriptini çağır. `(ok, mesaj)` döndürür.
+
+    ⚠️ Eskiden stderr DEVNULL'a gidiyor ve dönüş değeri yalnız Popen'in patlayıp
+    patlamadığını ölçüyordu → script `exit 2` ile ölse bile True dönüyordu.
+    Menüden "Widget Aç/Kapa"ya basan kullanıcı hiçbir tepki almıyor, hata da
+    hiçbir yere düşmüyordu. Artık stderr log dosyasına akar ve erken ölen süreç
+    yakalanır. (BL-205)
+    """
     widget = SELF_DIR / 'usage-widget'
-    if widget.exists():
-        try:
-            subprocess.Popen([str(widget), arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except OSError:
-            pass
-    return False
+    if not widget.exists():
+        mesaj = 'usage-widget kurulu değil: %s' % widget
+        _log(mesaj)
+        return False, mesaj
+
+    # stderr'i BORU değil DOSYA'ya veriyoruz: `open` alt kabuğu (`_place &`) fd'yi
+    # ~8 sn açık tutuyor; boru dolarsa o süreç bloke olurdu, dosya olmaz.
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        hedef = LOG_PATH.open('a', encoding='utf-8')
+    except OSError:
+        hedef = None
+    try:
+        proc = subprocess.Popen(
+            [str(widget), arg],
+            stdout=subprocess.DEVNULL,
+            stderr=(hedef or subprocess.DEVNULL))
+    except OSError as exc:
+        mesaj = 'usage-widget %s başlatılamadı: %s' % (arg, exc)
+        _log(mesaj)
+        return False, mesaj
+    finally:
+        if hedef is not None:
+            hedef.close()   # çocuk kendi kopyasını (dup) taşır
+
+    # Script kısa ömürlü: pencereyi arka plana atıp (setsid+disown) hemen çıkar.
+    # Bu pencerede ölürse çıkış kodunu görürüz; ölmezse çalışıyor kabul edilir.
+    bitis = time.monotonic() + SURFACE_WAIT_SEC
+    while time.monotonic() < bitis:
+        rc = proc.poll()
+        if rc is None:
+            time.sleep(0.05)
+            continue
+        if rc == 0:
+            return True, ''
+        mesaj = 'usage-widget %s başarısız (çıkış %d)' % (arg, rc)
+        ayrinti = _son_log_satiri()
+        _log(mesaj)
+        return False, (mesaj + ' — ' + ayrinti) if ayrinti else mesaj
+    return True, ''
 
 
 def _open_panel():
-    if not _run_surface('open'):
-        try:
-            subprocess.Popen(['xdg-open', BASE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError:
-            pass
+    ok, mesaj = _run_surface('open')
+    if ok:
+        return ''
+    # Widget yoksa/patladıysa panel yine de açılabilir — tarayıcıya düş.
+    try:
+        subprocess.Popen(['xdg-open', BASE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return ''
+    except OSError as exc:
+        yedek = 'xdg-open da başarısız: %s' % exc
+        _log(yedek)
+        return (mesaj + ' · ' + yedek) if mesaj else yedek
 
 
 class Tray:
@@ -320,8 +394,8 @@ class Tray:
         self.header = menu.addAction('usage-tracker')   # canlı manşet (devre dışı bilgi satırı)
         self.header.setEnabled(False)
         menu.addSeparator()
-        menu.addAction('Panel Aç', _open_panel)
-        menu.addAction('Widget Aç/Kapa', lambda: _run_surface('toggle'))
+        menu.addAction('Panel Aç', self._panel_ac)
+        menu.addAction('Widget Aç/Kapa', self._widget_toggle)
         menu.addAction('Yenile', self.refresh)
         menu.addSeparator()
         menu.addAction('Çıkış', app.quit)
@@ -334,11 +408,30 @@ class Tray:
         self.timer.start(INTERVAL)
         self.refresh()
 
+    def _uyar(self, mesaj):
+        """Sessiz başarısızlığı görünür kıl — tepsi balonu + log yolu."""
+        if not mesaj:
+            return
+        try:
+            self.icon.showMessage('usage-tracker', mesaj + '\n(ayrıntı: %s)' % LOG_PATH,
+                                  QtWidgets.QSystemTrayIcon.Warning, 6000)
+        except Exception:
+            # Bazı SNI host'ları showMessage'ı desteklemez; log yine de yazıldı.
+            sys.stderr.write('usage-tray: %s\n' % mesaj)
+
+    def _panel_ac(self):
+        self._uyar(_open_panel())
+
+    def _widget_toggle(self):
+        ok, mesaj = _run_surface('toggle')
+        if not ok:
+            self._uyar(mesaj)
+
     def _on_activate(self, reason):
         # Trigger = sol tık
         trig = getattr(QtWidgets.QSystemTrayIcon, 'Trigger', None)
         if reason == trig:
-            _open_panel()
+            self._panel_ac()
 
     def refresh(self):
         cls, hi, tip, headline = _summarize(_fetch())
