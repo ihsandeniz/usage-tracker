@@ -25,6 +25,7 @@ o turn'den beri CLI dışı (ChatGPT web Codex) kullanım olmadıysa doğrudur. 
 başlatırdı (bkz. `guard` çıkış kodu 3 sözleşmesi, docs/CLI.md).
 """
 import json
+import os
 import re
 import sys
 import threading
@@ -45,8 +46,22 @@ AUTH_PATH = CODEX_DIR / 'auth.json'
 USAGE_SESSION_WINDOW_SEC = 5 * 3600
 
 # Büyük log dizininde asılmayı önlemek için tarama sınırı (ledger: python/executor-with-timeout-yalani)
-MAX_FILES = 40
-MAX_LINES_PER_FILE = 20000
+#
+# ⚠️ Tavan dolduğunda kart `status='partial'` + `truncated=True` ile DÜRÜSTÇE uyarır:
+# token/$ toplamı eksiktir, limit barları (rate_limits) etkilenmez — onlar en yeni
+# gözlemden okunur. Yani bu bir arıza değil, ilan edilmiş sınır. Çok oturumlu
+# makinede toplamı tam istiyorsan yükselt; tarama süresi doğrusal artar. (BL-205)
+def _tavan(ad, varsayilan):
+    """Sınırı env'den oku. Bozuk/negatif değer varsayılana düşer — sessizce 0 tarama yapma."""
+    try:
+        n = int(os.environ.get(ad, '') or varsayilan)
+    except ValueError:
+        return varsayilan
+    return n if n > 0 else varsayilan
+
+
+MAX_FILES = _tavan('CODEX_MAX_FILES', 40)
+MAX_LINES_PER_FILE = _tavan('CODEX_MAX_LINES', 20000)
 
 _LOCK = threading.Lock()
 _FILE_CACHE = {}         # {path: (mtime, size, [events], rate_obs, hit_lines)}
