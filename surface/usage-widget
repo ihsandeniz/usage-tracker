@@ -44,6 +44,9 @@ on_hyprland() { command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_
 # on the page title instead — it starts with "usage-tracker" and nothing else does.
 SEL='.[]|select((.class==$c) or (.title|startswith("usage-tracker")))'
 
+# Hyprland conf + Lua ayarı: önce Lua biçimi, "ok" dönmezse eski biçim (BL-465; Lua'da eski biçim ölü)
+hdsp() { local lua=$1; shift; [ "$(hyprctl dispatch "$lua" 2>&1)" = "ok" ] || hyprctl dispatch "$@"; }
+
 is_open() {
   on_hyprland || return 1
   hyprctl clients -j 2>/dev/null | jq -e --arg c "$CLASS" "$SEL" >/dev/null 2>&1
@@ -52,7 +55,7 @@ is_open() {
 do_close() {
   on_hyprland || { echo "close: needs Hyprland to target the window; close it manually." >&2; return 0; }
   hyprctl clients -j 2>/dev/null | jq -r --arg c "$CLASS" "$SEL|.address" \
-    | while read -r a; do [ -n "$a" ] && hyprctl dispatch closewindow "address:$a" >/dev/null; done
+    | while read -r a; do [ -n "$a" ] && hdsp "hl.dsp.window.close({ window = \"address:$a\" })" closewindow "address:$a" >/dev/null; done
 }
 
 # Place the widget once its window appears: float + exact size + top-right + pin.
@@ -72,10 +75,10 @@ _place() {
   my="$(hyprctl monitors -j | jq -r --argjson m "$mon" '.[]|select(.id==$m).y')"
   mw="$(hyprctl monitors -j | jq -r --argjson m "$mon" '.[]|select(.id==$m).width')"
   local x=$(( mx + mw - W - 16 )) y=$(( my + 54 ))
-  hyprctl dispatch setfloating "address:$a" >/dev/null 2>&1 || true
-  hyprctl dispatch resizewindowpixel "exact $W $H,address:$a" >/dev/null 2>&1 || true
-  hyprctl dispatch movewindowpixel "exact $x $y,address:$a"   >/dev/null 2>&1 || true
-  hyprctl dispatch pin "address:$a" >/dev/null 2>&1 || true
+  hdsp "hl.dsp.window.float({ action = \"enable\", window = \"address:$a\" })" setfloating "address:$a" >/dev/null 2>&1 || true
+  hdsp "hl.dsp.window.resize({ x = $W, y = $H, relative = false, window = \"address:$a\" })" resizewindowpixel "exact $W $H,address:$a" >/dev/null 2>&1 || true
+  hdsp "hl.dsp.window.move({ x = $x, y = $y, relative = false, window = \"address:$a\" })" movewindowpixel "exact $x $y,address:$a" >/dev/null 2>&1 || true
+  hdsp "hl.dsp.window.pin({ window = \"address:$a\" })" pin "address:$a" >/dev/null 2>&1 || true
 }
 
 do_open() {
