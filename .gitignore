@@ -12,6 +12,7 @@ surface/surface.conf
 
 # vault-only working notes — MUST NOT reach the public repo
 CLAUDE.md
+CLAUDE-ek.md
 
 # PyInstaller yerel derlemesi (sürüm ikilileri CI'dan gelir — bkz. packaging/usage-tracker.spec)
 build/
