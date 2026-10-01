@@ -253,13 +253,23 @@ STYLE_BLOCK='
 # ════════════════════════════════════════════════════════════════════════════
 # AUTOSTART (shared by the widget and tray steps)
 # ════════════════════════════════════════════════════════════════════════════
-add_autostart() { # add_autostart NAME "COMMAND" — Hyprland exec-once, else XDG .desktop
-  local name="$1" cmd="$2" hypr="$CFG/hypr/hyprland.conf"
-  if [ -f "$hypr" ]; then
-    grep -qF "$cmd" "$hypr" && { ok "autostart already in hyprland.conf"; return 0; }
+# Hyprland reads hyprland.lua when it exists and then ignores hyprland.conf entirely
+# (Lua config, 0.56+). Writing exec-once into the .conf there "succeeds" but never runs.
+hypr_cfg() { # prints the config file Hyprland actually reads, or nothing
+  if [ -f "$CFG/hypr/hyprland.lua" ]; then echo "$CFG/hypr/hyprland.lua"
+  elif [ -f "$CFG/hypr/hyprland.conf" ]; then echo "$CFG/hypr/hyprland.conf"; fi
+}
+
+add_autostart() { # add_autostart NAME "COMMAND" — Hyprland start hook / exec-once, else XDG .desktop
+  local name="$1" cmd="$2" hypr; hypr=$(hypr_cfg)
+  if [ -n "$hypr" ]; then
+    grep -qF "$cmd" "$hypr" && { ok "autostart already in ${hypr##*/}"; return 0; }
     backup "$hypr"
-    printf '\n# usage-tracker %s\nexec-once = %s\n' "$name" "$cmd" >>"$hypr"
-    ok "autostart added to hyprland.conf"
+    case "$hypr" in
+      *.lua) printf '\n-- usage-tracker %s\nhl.on("hyprland.start", function() hl.exec_cmd([[%s]]) end)\n' "$name" "$cmd" >>"$hypr" ;;
+      *)     printf '\n# usage-tracker %s\nexec-once = %s\n' "$name" "$cmd" >>"$hypr" ;;
+    esac
+    ok "autostart added to ${hypr##*/}"
   else
     mkdir -p "$CFG/autostart"
     cat >"$CFG/autostart/usage-tracker-$name.desktop" <<EOF
@@ -274,15 +284,15 @@ EOF
 }
 
 has_autostart() { # has_autostart NAME COMMAND → 0 if present
-  local name="$1" cmd="$2" hypr="$CFG/hypr/hyprland.conf"
-  [ -f "$hypr" ] && grep -qF "$cmd" "$hypr" && return 0
+  local name="$1" cmd="$2" hypr; hypr=$(hypr_cfg)
+  [ -n "$hypr" ] && grep -qF "$cmd" "$hypr" && return 0
   [ -f "$CFG/autostart/usage-tracker-$name.desktop" ] && return 0
   return 1
 }
 
 remove_autostart() { # remove_autostart NAME — exact removal, never a line more
-  local name="$1" hypr="$CFG/hypr/hyprland.conf" hit=0
-  if [ -f "$hypr" ] && grep -q "# usage-tracker $name\$" "$hypr"; then
+  local name="$1" hypr hit=0; hypr=$(hypr_cfg)
+  if [ -n "$hypr" ] && grep -qE "^(#|--) usage-tracker $name\$" "$hypr"; then
     backup "$hypr"
     # Only drop the marker line and, if it directly follows, its exec-once line.
     # A blind `sed '/marker/,+1d'` would eat an innocent neighbour when the
@@ -290,13 +300,14 @@ remove_autostart() { # remove_autostart NAME — exact removal, never a line mor
     python3 - "$hypr" "$name" <<'PY' && hit=1
 import sys
 path, name = sys.argv[1], sys.argv[2]
-marker = f"# usage-tracker {name}"
+markers = (f"# usage-tracker {name}", f"-- usage-tracker {name}")
+starts = ("exec-once", 'hl.on("hyprland.start"')
 lines = open(path, encoding="utf-8").read().splitlines(keepends=True)
 out, i = [], 0
 while i < len(lines):
-    if lines[i].strip() == marker:
+    if lines[i].strip() in markers:
         i += 1
-        if i < len(lines) and lines[i].lstrip().startswith("exec-once") and "usage-" in lines[i]:
+        if i < len(lines) and lines[i].lstrip().startswith(starts) and "usage-" in lines[i]:
             i += 1
         while out and out[-1].strip() == "":   # drop the blank line we added
             out.pop()
@@ -305,7 +316,7 @@ while i < len(lines):
     out.append(lines[i]); i += 1
 open(path, "w", encoding="utf-8").writelines(out)
 PY
-    [ "$hit" = 1 ] && ok "autostart lines removed from hyprland.conf"
+    [ "$hit" = 1 ] && ok "autostart lines removed from ${hypr##*/}"
   fi
   if [ -f "$CFG/autostart/usage-tracker-$name.desktop" ]; then
     rm -f "$CFG/autostart/usage-tracker-$name.desktop" && { ok "autostart .desktop removed ($name)"; hit=1; }
@@ -808,10 +819,15 @@ if [ "$MACHINE" = 1 ]; then
         widget|tray)
           if [ "$STEP" = widget ]; then cmd="$SURFACE/usage-widget open"
           else cmd="python3 $SURFACE/usage-tray.py"; fi
-          if [ -f "$CFG/hypr/hyprland.conf" ]; then
-            kv target s "$CFG/hypr/hyprland.conf"
-            kv autostart a "# usage-tracker $STEP"
-            kv autostart a "exec-once = $cmd"
+          hypr=$(hypr_cfg)
+          if [ -n "$hypr" ]; then
+            kv target s "$hypr"
+            case "$hypr" in
+              *.lua) kv autostart a "-- usage-tracker $STEP"
+                     kv autostart a "hl.on(\"hyprland.start\", function() hl.exec_cmd([[$cmd]]) end)" ;;
+              *)     kv autostart a "# usage-tracker $STEP"
+                     kv autostart a "exec-once = $cmd" ;;
+            esac
           else
             kv target s "$CFG/autostart/usage-tracker-$STEP.desktop"
             kv autostart a "[Desktop Entry]"
