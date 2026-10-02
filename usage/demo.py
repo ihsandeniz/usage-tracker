@@ -509,6 +509,8 @@ def fetch() -> dict:
         'stale': False,
         'rateLimited': False,
         'rateLimitTier': None,
+        'staleReason': None,
+        'retryAtMs': None,
         'raw': None,
         'windows': {},
     }

@@ -29,6 +29,20 @@ from unittest import mock
 
 from usage import engine, settings, viewconfig
 
+
+# Gerçek Anthropic limit ucuna çıkma: o uç agresif rate-limit'li (429 + ~45 dk Retry-After)
+# ve her test koşusu canlı paneli bekletiyordu. Bu dosyadaki wire/sihirbaz testleri ağsız.
+_NO_LIVE = mock.patch('usage.live._fetch_raw',
+                      return_value={'ok': False, 'error': 'test: ağ kapalı', 'raw': None})
+
+
+def setUpModule():
+    _NO_LIVE.start()
+
+
+def tearDownModule():
+    _NO_LIVE.stop()
+
 REPO = Path(__file__).resolve().parent.parent
 
 

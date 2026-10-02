@@ -359,7 +359,10 @@ def _overlay_live(out: dict, now_ms: int):
     out['live'] = {'ok': lv.get('ok'), 'error': lv.get('error'), 'cached': lv.get('cached'),
                    'fetchedAtMs': lv.get('fetchedAtMs'), 'ageSec': lv.get('ageSec'),
                    'stale': bool(lv.get('stale')), 'rateLimited': lv.get('rateLimited'),
-                   'rateLimitTier': lv.get('rateLimitTier')}
+                   'rateLimitTier': lv.get('rateLimitTier'),
+                   # son iyi değer gösterilirken ağın neden düştüğü + 429'da tekrar deneme anı;
+                   # bunlar olmadan panel "donuk" görünür ama sebep söylemez
+                   'staleReason': lv.get('staleReason'), 'retryAtMs': lv.get('retryAtMs')}
     if not lv.get('ok'):
         return
     stale = bool(lv.get('stale'))

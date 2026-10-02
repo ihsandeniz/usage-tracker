@@ -84,11 +84,11 @@ class UnknownPricesAreExplicit(unittest.TestCase):
 
 class LiveFreshnessIsExplicit(unittest.TestCase):
     def setUp(self):
-        self.old_cache = live._CACHE
-        live._CACHE = None
+        self.old_cache, self.old_retry = live._CACHE, live._RETRY_AT
+        live._CACHE, live._RETRY_AT = None, 0.0
 
     def tearDown(self):
-        live._CACHE = self.old_cache
+        live._CACHE, live._RETRY_AT = self.old_cache, self.old_retry
 
     def test_success_records_when_the_request_finished(self):
         response = {'ok': True, 'error': None, 'windows': {}}
@@ -114,6 +114,41 @@ class LiveFreshnessIsExplicit(unittest.TestCase):
         self.assertEqual(result['fetchedAtMs'], 1_000_000)
         self.assertEqual(result['ageSec'], live.LIVE_FRESHNESS_SEC + 1.0)
         self.assertIs(result['stale'], True)
+
+    def test_429_waits_out_retry_after_instead_of_hammering(self):
+        # 2026-10-02: uç 429 + Retry-After 2685 döndü; 120 sn'de bir yeniden vurulunca
+        # panel 79 dk donuk kaldı ve sebep wire'a hiç çıkmadı.
+        live._CACHE = (1000.0, {'ok': True, 'error': None, 'windows': {}})
+        limited = {'ok': False, 'error': 'HTTP 429 (Too Many Requests)', 'raw': None,
+                   'rateLimited': True, 'retryAfterSec': 2685.0}
+        raw = mock.Mock(return_value=limited)
+        with mock.patch.object(live, '_read_token', return_value=('token', 0, None)), \
+                mock.patch.object(live, '_fetch_raw', raw), \
+                mock.patch.object(live.time, 'time', return_value=5000.0):
+            first = live.fetch()
+            again = live.fetch(force=True)
+
+        self.assertEqual(raw.call_count, 1, 'bekleme süresinde ağa tekrar çıkılmamalı')
+        for res in (first, again):
+            self.assertIs(res['ok'], True)          # son iyi değer gösterilmeye devam eder
+            self.assertIs(res['rateLimited'], True)
+            self.assertEqual(res['staleReason'], 'HTTP 429 (Too Many Requests)')
+            self.assertEqual(res['retryAtMs'], 7_685_000)
+
+        fresh = {'ok': True, 'error': None, 'windows': {}}
+        with mock.patch.object(live, '_read_token', return_value=('token', 0, None)), \
+                mock.patch.object(live, '_fetch_raw', return_value=fresh) as raw2, \
+                mock.patch.object(live, '_save_disk_cache'), \
+                mock.patch.object(live.time, 'time', return_value=5000.0 + 2686):
+            after = live.fetch()
+        self.assertEqual(raw2.call_count, 1, 'süre dolunca yeniden denenmeli')
+        self.assertIs(after['cached'], False)
+
+    def test_retry_after_is_bounded(self):
+        self.assertEqual(live._retry_after_sec({}), live.RETRY_DEFAULT_SEC)
+        self.assertEqual(live._retry_after_sec({'Retry-After': 'abc'}), live.RETRY_DEFAULT_SEC)
+        self.assertEqual(live._retry_after_sec({'Retry-After': '99999'}), live.RETRY_MAX_SEC)
+        self.assertEqual(live._retry_after_sec({'Retry-After': '120'}), 120.0)
 
     def test_v1_wire_forwards_live_age_metadata(self):
         live_meta = {

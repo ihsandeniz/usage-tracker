@@ -29,9 +29,15 @@ CACHE_TTL  = 120.0          # sn — bu süre içinde tekrar çağrı ağı vurm
 # normal 2 dakikalık cache TTL'inin 5 katı: kısa kesintileri tolere ederken
 # saatler/günler önceki bir yüzdeyi "canlı" saymaz.
 LIVE_FRESHNESS_SEC = 10 * 60.0
+# 429'da sunucu Retry-After ile bekleme süresi verir (ölçüldü: 2685 sn). Eskiden yok
+# sayılıp 120 sn'de bir yeniden vuruluyordu → panel saatlerce donuk kaldı. Başlık yoksa
+# 5 dk; aşırı uzun değer panelin kalıcı kör kalmasın diye 1 saatle sınırlanır.
+RETRY_DEFAULT_SEC = 300.0
+RETRY_MAX_SEC     = 3600.0
 
 _LOCK  = threading.Lock()
 _CACHE = None               # (fetched_at, result_dict)
+_RETRY_AT = 0.0             # bu epoch saniyesine kadar ağa çıkma (429 bekleme süresi)
 
 
 def _read_token():
@@ -84,6 +90,23 @@ def _parse(payload: dict) -> dict:
     return windows
 
 
+def _retry_after_sec(headers) -> float:
+    """Retry-After başlığını saniyeye çevir (sayı ya da HTTP tarihi); yoksa varsayılan."""
+    v = (headers.get('Retry-After') if headers is not None else None) or ''
+    sec = None
+    try:
+        sec = float(v)
+    except ValueError:
+        try:
+            from email.utils import parsedate_to_datetime
+            sec = parsedate_to_datetime(v).timestamp() - time.time()
+        except Exception:
+            sec = None
+    if sec is None or sec <= 0:
+        sec = RETRY_DEFAULT_SEC
+    return min(sec, RETRY_MAX_SEC)
+
+
 def _fetch_raw():
     tok, exp, tier = _read_token()
     now_ms = int(time.time() * 1000)
@@ -103,8 +126,11 @@ def _fetch_raw():
         return {'ok': True, 'error': None, 'raw': raw, 'rateLimitTier': tier,
                 'windows': _parse(raw if isinstance(raw, dict) else {})}
     except urllib.error.HTTPError as e:
-        return {'ok': False, 'error': f'HTTP {e.code} ({e.reason})', 'raw': None,
-                'rateLimited': e.code == 429}
+        out = {'ok': False, 'error': f'HTTP {e.code} ({e.reason})', 'raw': None,
+               'rateLimited': e.code == 429}
+        if e.code == 429:
+            out['retryAfterSec'] = _retry_after_sec(e.headers)
+        return out
     except Exception as e:
         return {'ok': False, 'error': f'{type(e).__name__}: {e}', 'raw': None}
 
@@ -159,7 +185,7 @@ def fetch(force: bool = False) -> dict:
     if os.environ.get('USAGE_DEMO') == '1':
         from . import demo
         return demo.fetch()
-    global _CACHE
+    global _CACHE, _RETRY_AT
     now = time.time()
     now_ms = int(now * 1000)
     # Token süresi dolmuşsa cache'i geçersiz kıl
@@ -173,8 +199,15 @@ def fetch(force: bool = False) -> dict:
             res = _with_freshness(_CACHE[1], _CACHE[0], now)
             res['cached'] = True
             return res
+        if now < _RETRY_AT:
+            # 429 bekleme süresi dolmadı: ağa çıkmak cezayı uzatmaktan başka işe yaramaz
+            # (force dahil). Son iyi değeri, sebebi ve tekrar deneme anıyla göster.
+            return _rate_limited(None, now)
     res = _fetch_raw()
     with _LOCK:
+        if res.get('rateLimited'):
+            _RETRY_AT = time.time() + float(res.get('retryAfterSec') or RETRY_DEFAULT_SEC)
+            return _rate_limited(res, now)
         # başarılı sonucu cache'le; başarısızsa son iyi sonucu koru ama hatayı da bildir
         if res.get('ok'):
             # İstek başlatıldığı an değil, veri gerçekten alındıktan sonraki an.
@@ -191,6 +224,19 @@ def fetch(force: bool = False) -> dict:
         # Başarılı temel veri yok; yaş hesabı uygulanamaz. `ok` zaten yokluğu ayırır.
         res.update({'fetchedAtMs': None, 'ageSec': None, 'stale': False})
     return res
+
+
+def _rate_limited(res, now: float) -> dict:
+    """429 durumu: son iyi değer varsa onu, yoksa hatayı döndür; ikisinde de tekrar deneme anı.
+    _LOCK tutulurken çağrılır."""
+    reason = (res or {}).get('error') or 'HTTP 429 (Too Many Requests)'
+    meta = {'rateLimited': True, 'retryAtMs': int(_RETRY_AT * 1000)}
+    if _CACHE:
+        stale = dict(_CACHE[1])
+        stale.update({'ok': True, 'cached': True, 'staleReason': reason, **meta})
+        return _with_freshness(stale, _CACHE[0], now)
+    return {'ok': False, 'error': reason, 'raw': None, 'cached': False,
+            'fetchedAtMs': None, 'ageSec': None, 'stale': False, **meta}
 
 
 if __name__ == '__main__':
