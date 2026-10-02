@@ -30,14 +30,17 @@ from usage import wizard
 # ve her test koşusu canlı paneli bekletiyordu. Bu dosyadaki wire/sihirbaz testleri ağsız.
 _NO_LIVE = mock.patch('usage.live._fetch_raw',
                       return_value={'ok': False, 'error': 'test: ağ kapalı', 'raw': None})
+_NO_STATUSLINE = mock.patch('usage.live._load_statusline', return_value=None)
 
 
 def setUpModule():
     _NO_LIVE.start()
+    _NO_STATUSLINE.start()
 
 
 def tearDownModule():
     _NO_LIVE.stop()
+    _NO_STATUSLINE.stop()
 
 
 class _Sandbox(unittest.TestCase):

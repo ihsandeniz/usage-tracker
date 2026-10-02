@@ -362,7 +362,9 @@ def _overlay_live(out: dict, now_ms: int):
                    'rateLimitTier': lv.get('rateLimitTier'),
                    # son iyi değer gösterilirken ağın neden düştüğü + 429'da tekrar deneme anı;
                    # bunlar olmadan panel "donuk" görünür ama sebep söylemez
-                   'staleReason': lv.get('staleReason'), 'retryAtMs': lv.get('retryAtMs')}
+                   'staleReason': lv.get('staleReason'), 'retryAtMs': lv.get('retryAtMs'),
+                   # 'statusline' = Claude Code'un kendi cevaplarından (ağsız), 'api' = oauth/usage
+                   'source': lv.get('source') or ('api' if lv.get('ok') else None)}
     if not lv.get('ok'):
         return
     stale = bool(lv.get('stale'))

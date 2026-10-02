@@ -221,3 +221,22 @@ Notifications are deduped using `~/.local/share/usage-tracker/notify-state`:
 - Auto-created on first run
 - Reset when usage drops back below all thresholds (so next threshold-cross triggers again)
 - Safe to delete anytime (just means next run will re-notify if threshold is still active)
+
+## Option D — Claude Code status line as the live-limit source (`statusline.py`)
+
+Claude Code already receives your current limit percentages with every API response and
+hands them to the status line script on stdin (`rate_limits.five_hour` / `seven_day`).
+`statusline.py` saves them to `~/.local/state/usage-tracker/statusline-limits.json` and
+prints a short line (`5s %8 · 7g %29`). While that record is younger than 10 minutes,
+`usage/live.py` uses it and **makes no request** to `api/oauth/usage` — that endpoint is
+aggressively rate-limited (a 429 can carry `Retry-After` of ~45 min). With no Claude Code
+session running the record ages out and the old API path takes over, honoring `Retry-After`.
+
+```json
+// ~/.claude/settings.json
+"statusLine": { "type": "command", "command": "python3 /path/to/usage-tracker/surface/statusline.py" }
+```
+
+Only the 5-hour and 7-day windows arrive this way; the per-model weekly bar keeps its
+calibrated estimate. The wire reports which path fed the numbers in `live.source`
+(`statusline` · `api`). The script never prints an error and always exits 0.

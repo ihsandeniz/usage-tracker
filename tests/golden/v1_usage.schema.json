@@ -201,6 +201,7 @@
       "rateLimited": "bool",
       "raw": "null",
       "retryAtMs": "null",
+      "source": "null",
       "stale": "bool",
       "staleReason": "null",
       "windows": {}

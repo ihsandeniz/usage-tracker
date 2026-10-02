@@ -169,6 +169,38 @@ def _save_disk_cache(at: float, res: dict):
         pass                    # cache lüks; yazamazsak sessizce devam
 
 
+def _statusline_path():
+    from . import platform as _paths
+    return _paths.state_dir() / 'statusline-limits.json'
+
+
+def _load_statusline():
+    """surface/statusline.py'nin yazdığı kayıt → (at, res) ya da None.
+
+    Claude Code limit yüzdesini her API cevabıyla zaten alıyor ve durum satırına veriyor;
+    o kayıt varken `oauth/usage` ucuna çıkmak gereksiz ve 429 riskli. Yalnız five_hour ve
+    seven_day gelir — model başı haftalık pencere bu yoldan gelmez.
+    """
+    try:
+        d = json.loads(_statusline_path().read_text(encoding='utf-8'))
+        at, wins = d.get('at'), d.get('windows')
+        if not isinstance(at, (int, float)) or not isinstance(wins, dict):
+            return None
+        windows = {}
+        for k, w in wins.items():
+            pct = w.get('used_percentage') if isinstance(w, dict) else None
+            if isinstance(pct, (int, float)) and not isinstance(pct, bool):
+                windows[k] = {'utilization': round(float(pct), 1), 'resets_at': w.get('resets_at'),
+                              'remaining': None, 'overage': None}
+        if not windows:
+            return None
+        _, _, tier = _read_token()
+        return (float(at), {'ok': True, 'error': None, 'raw': None, 'rateLimitTier': tier,
+                            'windows': windows, 'source': 'statusline'})
+    except Exception:
+        return None
+
+
 def _with_freshness(res: dict, fetched_at: float, now: float) -> dict:
     """Son başarılı ağ yanıtının zamanını ve türetilmiş yaşını ekle."""
     out = dict(res)
@@ -192,9 +224,17 @@ def fetch(force: bool = False) -> dict:
     _, exp, _ = _read_token()
     if exp and exp <= now_ms:
         _CACHE = None
+    sl = _load_statusline()
+    if sl and (now - sl[0]) < LIVE_FRESHNESS_SEC:
+        # Taze durum satırı kaydı: ağa hiç çıkma (force dahil — aynı veri, sıfır istek).
+        res = _with_freshness(sl[1], sl[0], now)
+        res['cached'] = True
+        return res
     with _LOCK:
         if _CACHE is None:
             _CACHE = _load_disk_cache()      # restart sonrası ilk çağrı
+        if sl and (not _CACHE or sl[0] > _CACHE[0]):
+            _CACHE = sl                      # bayat da olsa ağdan gelen son değerden yeni
         if _CACHE and not force and (now - _CACHE[0]) < CACHE_TTL:
             res = _with_freshness(_CACHE[1], _CACHE[0], now)
             res['cached'] = True

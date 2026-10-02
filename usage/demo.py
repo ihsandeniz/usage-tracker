@@ -511,6 +511,7 @@ def fetch() -> dict:
         'rateLimitTier': None,
         'staleReason': None,
         'retryAtMs': None,
+        'source': None,
         'raw': None,
         'windows': {},
     }

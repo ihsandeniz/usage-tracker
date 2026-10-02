@@ -86,8 +86,11 @@ class LiveFreshnessIsExplicit(unittest.TestCase):
     def setUp(self):
         self.old_cache, self.old_retry = live._CACHE, live._RETRY_AT
         live._CACHE, live._RETRY_AT = None, 0.0
+        self._no_sl = mock.patch.object(live, '_load_statusline', return_value=None)
+        self._no_sl.start()
 
     def tearDown(self):
+        self._no_sl.stop()
         live._CACHE, live._RETRY_AT = self.old_cache, self.old_retry
 
     def test_success_records_when_the_request_finished(self):
@@ -149,6 +152,61 @@ class LiveFreshnessIsExplicit(unittest.TestCase):
         self.assertEqual(live._retry_after_sec({'Retry-After': 'abc'}), live.RETRY_DEFAULT_SEC)
         self.assertEqual(live._retry_after_sec({'Retry-After': '99999'}), live.RETRY_MAX_SEC)
         self.assertEqual(live._retry_after_sec({'Retry-After': '120'}), 120.0)
+
+    def _statusline_file(self, at, pct=8.0):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        f = Path(td.name) / 'statusline-limits.json'
+        f.write_text(json.dumps({'at': at, 'windows': {
+            'five_hour': {'used_percentage': pct, 'resets_at': 1790989800},
+            'seven_day': {'used_percentage': 29.0, 'resets_at': 1791432000}}}), encoding='utf-8')
+        return f
+
+    def test_fresh_statusline_record_needs_no_network(self):
+        self._no_sl.stop()
+        f = self._statusline_file(at=5000.0)
+        raw = mock.Mock()
+        with mock.patch.object(live, '_statusline_path', return_value=f), \
+                mock.patch.object(live, '_read_token', return_value=('token', 0, 'max')), \
+                mock.patch.object(live, '_fetch_raw', raw), \
+                mock.patch.object(live.time, 'time', return_value=5030.0):
+            res = live.fetch(force=True)
+        self._no_sl.start()
+        raw.assert_not_called()
+        self.assertEqual(res['source'], 'statusline')
+        self.assertEqual(res['windows']['five_hour']['utilization'], 8.0)
+        self.assertEqual(res['windows']['seven_day']['resets_at'], 1791432000)
+        self.assertEqual(res['ageSec'], 30.0)
+        self.assertIs(res['stale'], False)
+
+    def test_old_statusline_beats_older_network_value_while_rate_limited(self):
+        self._no_sl.stop()
+        f = self._statusline_file(at=4000.0, pct=12.0)   # 1000 sn eski: bayat ama ağdakinden yeni
+        live._CACHE = (1000.0, {'ok': True, 'error': None, 'windows': {
+            'five_hour': {'utilization': 50.0}}})
+        limited = {'ok': False, 'error': 'HTTP 429 (Too Many Requests)', 'raw': None,
+                   'rateLimited': True, 'retryAfterSec': 60.0}
+        with mock.patch.object(live, '_statusline_path', return_value=f), \
+                mock.patch.object(live, '_read_token', return_value=('token', 0, None)), \
+                mock.patch.object(live, '_fetch_raw', return_value=limited), \
+                mock.patch.object(live.time, 'time', return_value=5000.0):
+            res = live.fetch()
+        self._no_sl.start()
+        self.assertEqual(res['windows']['five_hour']['utilization'], 12.0)
+        self.assertIs(res['stale'], True)
+        self.assertIs(res['rateLimited'], True)
+
+    def test_statusline_script_extracts_only_numeric_windows(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'statusline', Path(__file__).resolve().parent.parent / 'surface' / 'statusline.py')
+        sl = importlib.util.module_from_spec(spec); spec.loader.exec_module(sl)
+        got = sl.extract({'rate_limits': {
+            'five_hour': {'used_percentage': 8, 'resets_at': 1},
+            'seven_day': {'used_percentage': None},
+            'spend_limit': {'used_percentage': 3}}})
+        self.assertEqual(got, {'five_hour': {'used_percentage': 8.0, 'resets_at': 1}})
+        self.assertEqual(sl.extract({}), {})
+        self.assertEqual(sl.line(got), '5s %8')
 
     def test_v1_wire_forwards_live_age_metadata(self):
         live_meta = {
