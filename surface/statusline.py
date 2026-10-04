@@ -41,6 +41,55 @@ def extract(payload) -> dict:
     return out
 
 
+# Aynı pencere sayılan sıfırlanma farkı (sn). Claude Code `resets_at`'i yuvarlanmış verir;
+# küçük kayma yeni pencere demek değildir.
+AYNI_PENCERE_SN = 60
+
+
+def _reset(w):
+    r = w.get('resets_at') if isinstance(w, dict) else None
+    return r if isinstance(r, (int, float)) and not isinstance(r, bool) else None
+
+
+def merge(eski: dict, yeni: dict, now: float) -> dict:
+    """Dosyadaki kayıtla bu oturumun gördüğünü birleştir — son yazan kazanmasın.
+
+    Açık her oturum durum satırını çizerken bu dosyaya yazar; boşta duran bir oturum ise
+    SON API cevabındaki eski sayıyı taşır. Körlemesine yazınca taze %69'u bayat %59 ezdi
+    (2026-10-05, rozet 59↔69 gidip geldi). Kurallar:
+      - sıfırlanma anı geçmiş eski pencere atılır (artık geçerli değil);
+      - yeni gelende pencere yoksa eldeki geçerli kayıt korunur;
+      - yeni gelen daha ESKİ bir pencereye aitse yok sayılır;
+      - aynı pencerede yüzde yalnız artar (kullanım pencere içinde azalmaz) → büyüğü kalır.
+    Oku-birleştir-yaz atomik değil; iki oturumun aynı milisaniyede yazması nadirdir ve
+    sonraki çizim düzeltir.
+    """
+    out = {}
+    for k in WINDOWS:
+        o, n = (eski or {}).get(k), (yeni or {}).get(k)
+        if isinstance(o, dict):
+            r = _reset(o)
+            if r is not None and r <= now or not isinstance(o.get('used_percentage'), (int, float)):
+                o = None
+        else:
+            o = None
+        if not n:
+            if o:
+                out[k] = o
+            continue
+        if not o:
+            out[k] = n
+            continue
+        ro, rn = _reset(o), _reset(n)
+        if ro is not None and rn is not None and rn < ro - AYNI_PENCERE_SN:
+            out[k] = o                                   # bayat oturum, eski pencere
+        elif ro is not None and rn is not None and abs(rn - ro) <= AYNI_PENCERE_SN:
+            out[k] = n if n['used_percentage'] >= o['used_percentage'] else o
+        else:
+            out[k] = n                                   # yeni pencere (ya da reset bilinmiyor)
+    return out
+
+
 def line(windows: dict) -> str:
     parts = []
     for k, label in (('five_hour', '5s'), ('seven_day', '7g')):
@@ -146,8 +195,15 @@ def main():
     if windows:
         try:
             from usage import platform as _paths
-            _paths.atomic_write_text(_paths.state_dir() / FILE_NAME,
-                                     json.dumps({'at': time.time(), 'windows': windows}))
+            yol = _paths.state_dir() / FILE_NAME
+            now = time.time()
+            try:
+                eski = json.loads(yol.read_text(encoding='utf-8')).get('windows') or {}
+            except Exception:
+                eski = {}
+            birlesik = merge(eski, windows, now)
+            if birlesik:
+                _paths.atomic_write_text(yol, json.dumps({'at': now, 'windows': birlesik}))
         except Exception:
             pass
     parcalar = []
