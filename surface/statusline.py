@@ -13,6 +13,7 @@ Kurulum (~/.claude/settings.json):
 Hiçbir koşulda hata basmaz ve 0 dışında çıkmaz: durum satırı her oturumda koşar.
 """
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -49,21 +50,115 @@ def line(windows: dict) -> str:
     return ' · '.join(parts)
 
 
+# ── Bağlam bandı (vault BL-519 #1; kaynak: dev-mod baglam-bandi, token-weather tabanlı)
+# Kademeler pencereye değil COMPACT NOKTASINA göre: bu makinede
+# CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=55 → 1M pencerede compact ~550k. "%40" rahat
+# görünür ama compact'ın %73'üdür.
+KADEME = ((50, '○', 'Rahat', '32'), (75, '◐', 'Olağan', '36'),
+          (90, '◕', 'Kapanış noktası ara', '33'),
+          (float('inf'), '●', 'Compact yakın — kapat ya da devret', '31'))
+CUBUK = '▁▂▃▄▅▆▇█'
+GECMIS = 12
+
+
+def kisa(n: float) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M".replace('.0M', 'M')
+    if n >= 1_000:
+        return f"{round(n / 1_000)}k"
+    return str(int(n))
+
+
+def compact_pct() -> float:
+    try:
+        v = float(os.environ.get('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', ''))
+        return v if 0 < v <= 100 else 95.0
+    except ValueError:
+        return 95.0
+
+
+def baglam_okuma(payload) -> tuple[int, int] | None:
+    """stdin JSON'undan (tokens, pencere); yoksa None."""
+    cw = payload.get('context_window') if isinstance(payload, dict) else None
+    if not isinstance(cw, dict):
+        return None
+    pencere = cw.get('context_window_size')
+    if not isinstance(pencere, (int, float)) or pencere <= 0:
+        return None
+    pct = cw.get('used_percentage')
+    cu = cw.get('current_usage')
+    if isinstance(cu, dict):
+        tokens = sum(v for k, v in cu.items()
+                     if k.endswith('input_tokens') and isinstance(v, (int, float)))
+    elif isinstance(pct, (int, float)):
+        tokens = pencere * pct / 100
+    else:
+        return None
+    return int(tokens), int(pencere)
+
+
+def gecmis_guncelle(sid: str, tokens: int) -> list[int]:
+    """Oturum başına son GECMIS okuma; aynı değer tekrar yazılmaz."""
+    try:
+        from usage import platform as _paths
+        yol = _paths.state_dir() / f'statusline-ctx-{sid or "x"}.json'
+        try:
+            dizi = json.loads(yol.read_text(encoding='utf-8'))
+        except Exception:
+            dizi = []
+        dizi = [t for t in dizi if isinstance(t, int) and t > 0]
+        if tokens > 0 and (not dizi or dizi[-1] != tokens):
+            dizi = (dizi + [tokens])[-GECMIS:]
+            _paths.atomic_write_text(yol, json.dumps(dizi))
+        return dizi
+    except Exception:
+        return [tokens] if tokens else []
+
+
+def bant(tokens: int, pencere: int, gecmis: list[int]) -> str:
+    hedef = pencere * compact_pct() / 100
+    oran = 100 * tokens / hedef
+    _, ikon, soz, renk = next(k for k in KADEME if oran < k[0])
+    kalan = max(0, hedef - tokens)
+    parca = [f"\033[1;{renk}m{ikon} {soz}\033[0m",
+             f"%{round(100 * tokens / pencere)}",
+             f"\033[2m{kisa(tokens)}/{kisa(pencere)}\033[0m",
+             f"compact'a {kisa(kalan)}"]
+    if len(gecmis) >= 3:
+        ort = (gecmis[-1] - gecmis[0]) / (len(gecmis) - 1)
+        if ort > 500:
+            parca[-1] += f" (~{int(kalan // ort)} tur)"
+    if len(gecmis) >= 2:
+        tepe = max(gecmis) or 1
+        grafik = ''.join(CUBUK[min(7, int(t / tepe * 7))] for t in gecmis)
+        d = gecmis[-1] - gecmis[-2]
+        egilim = f"▲ +{kisa(d)}" if d > 0 else (f"▼ {kisa(-d)}" if d < 0 else 'sabit')
+        parca.append(f"\033[{renk}m{grafik}\033[0m \033[2m{egilim}\033[0m")
+    return '  '.join(parca)
+
+
 def main():
     try:
         payload = json.loads(sys.stdin.read() or '{}')
     except Exception:
         return
     windows = extract(payload)
-    if not windows:
-        return
-    try:
-        from usage import platform as _paths
-        _paths.atomic_write_text(_paths.state_dir() / FILE_NAME,
-                                 json.dumps({'at': time.time(), 'windows': windows}))
-    except Exception:
-        pass
-    print(line(windows))
+    if windows:
+        try:
+            from usage import platform as _paths
+            _paths.atomic_write_text(_paths.state_dir() / FILE_NAME,
+                                     json.dumps({'at': time.time(), 'windows': windows}))
+        except Exception:
+            pass
+    parcalar = []
+    okuma = baglam_okuma(payload)
+    if okuma and okuma[0] > 0:
+        sid = str(payload.get('session_id') or '')
+        parcalar.append(bant(*okuma, gecmis_guncelle(sid, okuma[0])))
+    if windows:
+        parcalar.append(line(windows))
+    if parcalar:
+        print('  · '.join(parcalar))
 
 
 if __name__ == '__main__':
