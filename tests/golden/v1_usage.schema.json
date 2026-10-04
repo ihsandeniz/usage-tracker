@@ -225,7 +225,7 @@
         "source": "string",
         "sourceLabel": "string",
         "stale": "bool",
-        "warning": "null"
+        "warning": "string"
       },
       "currency": "string",
       "estimatedModels": [],

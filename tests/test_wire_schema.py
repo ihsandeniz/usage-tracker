@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from usage import demo, engine
+from usage import catalog, demo, engine, pricing
 
 GOLDEN = Path(__file__).resolve().parent / 'golden' / 'v1_usage.schema.json'
 
@@ -106,20 +106,37 @@ def _diff(expected, actual, path='$'):
 
 
 def _quiet_wire(fn):
-    """The real assembler, with no transcripts and no network."""
+    """The real assembler, with no transcripts, no network and a pinned price catalogue.
+
+    The catalogue is pinned too: `spend.catalog.warning` is null while the catalogue is fresh
+    and a sentence once it is older than STALE_AFTER_DAYS. Left to the machine, the snapshot
+    depended on the calendar and on whether ~/.hermes had a fresh cache — CI went red on
+    2026-09-29 only because the bundled snapshot (2026-08-11) crossed 45 days. Here it is
+    always the bundled catalogue, always stale, so the populated (string) shape is pinned.
+    """
     with tempfile.TemporaryDirectory() as td:
         saved = engine.CLAUDE_PROJECTS_DIR
         engine.CLAUDE_PROJECTS_DIR = Path(td) / 'no-projects'
-        patch = mock.patch.object(
-            engine.live, 'fetch',
-            return_value={'ok': False, 'error': 'snapshot', 'cached': False,
-                          'fetchedAtMs': None, 'ageSec': None, 'stale': False,
-                          'rateLimited': False, 'rateLimitTier': None})
-        patch.start()
+        patches = [
+            mock.patch.object(
+                engine.live, 'fetch',
+                return_value={'ok': False, 'error': 'snapshot', 'cached': False,
+                              'fetchedAtMs': None, 'ageSec': None, 'stale': False,
+                              'rateLimited': False, 'rateLimitTier': None}),
+            mock.patch.object(catalog, 'HERMES_CACHE', Path(td) / 'no-hermes.json'),
+            mock.patch.object(catalog, '_USER_CACHE_OVERRIDE', Path(td) / 'no-user.json'),
+            mock.patch.object(catalog, '_age_days',
+                              lambda _generated_at: catalog.STALE_AFTER_DAYS + 1),
+        ]
+        for p in patches:
+            p.start()
+        pricing.invalidate()
         try:
             return fn()
         finally:
-            patch.stop()
+            for p in reversed(patches):
+                p.stop()
+            pricing.invalidate()
             engine.CLAUDE_PROJECTS_DIR = saved
 
 
