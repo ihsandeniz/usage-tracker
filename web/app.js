@@ -39,7 +39,15 @@ const I18N = {
     keySet: 'set', keyUnset: 'not set', rateAt: 'rate', enteredOn: 'entered',
     win5h: '5-hour window', winWeek: 'Weekly', winWeekModel: 'Weekly model',
     winReset: 'window reset since', measured: 'measured', ago: 'ago',
-    limitFloor: 'reported by the provider — a floor, not a live counter'
+    limitFloor: 'reported by the provider — a floor, not a live counter',
+    ctxTitle: 'Context Window', ctxSessions: 'sessions', ctxNone: 'no open Claude Code session',
+    ctxNew: 'new session — no reply yet', ctxMeasuring: 'breakdown being measured…',
+    ctxCompact: 'compacts at', ctxFree: 'left before compact', ctxBusy: 'working', ctxIdle: 'idle',
+    ctxMemFiles: 'Memory files', ctxSkills: 'Skills', ctxAgents: 'Custom agents', ctxMcp: 'MCP tools',
+    ctxDeferred: 'loaded on demand, not counted', ctxJustNow: 'just now', ctxAge: 'breakdown measured',
+    ctxNote: 'Every open Claude Code session. The total is live from the last reply; the breakdown '
+      + 'is measured with /context on a fork of the session (the session itself is never written). '
+      + 'Dashed line = auto-compact point.'
   },
   tr: {
     spend: 'Gerçek Harcama', limits: 'Claude Limitleri', calibration: 'Kalibrasyon (yedek)', view: 'Görünüm',
@@ -74,7 +82,14 @@ const I18N = {
     keySet: 'dolu', keyUnset: 'boş', rateAt: 'kur', enteredOn: 'girildi',
     win5h: '5 saatlik pencere', winWeek: 'Haftalık', winWeekModel: 'Haftalık model',
     winReset: 'pencere sıfırlandı —', measured: 'ölçüm', ago: 'önce',
-    limitFloor: 'sağlayıcının kendi bildirimi — anlık sayaç değil, alt sınır'
+    limitFloor: 'sağlayıcının kendi bildirimi — anlık sayaç değil, alt sınır',
+    ctxTitle: 'Bağlam Penceresi', ctxSessions: 'oturum', ctxNone: 'açık Claude Code oturumu yok',
+    ctxNew: 'yeni oturum — henüz yanıt yok', ctxMeasuring: 'kırılım ölçülüyor…',
+    ctxCompact: 'sıkıştırma', ctxFree: 'sıkıştırmaya kalan', ctxBusy: 'çalışıyor', ctxIdle: 'boşta',
+    ctxMemFiles: 'Hafıza dosyaları', ctxSkills: 'Skill\'ler', ctxAgents: 'Ajanlar', ctxMcp: 'MCP araçları',
+    ctxDeferred: 'gerektiğinde yüklenir, sayılmaz', ctxJustNow: 'az önce', ctxAge: 'kırılım ölçümü',
+    ctxNote: 'Her açık Claude Code oturumu. Toplam son yanıttan anlık; kırılım oturumun bir kopyasında '
+      + '/context ile ölçülür (kaynak oturuma yazılmaz). Kesikli çizgi = otomatik sıkıştırma eşiği.'
   }
 };
 
@@ -556,6 +571,65 @@ async function submitCalib() {
   } catch (e) { msg.textContent = '✗ ' + e.message; }
 }
 
+// ── bağlam penceresi (/api/context) ─────────────────────
+// Kategori → renk. Claude'un kendi /context panelindeki sırayla; tanınmayan kategori gri.
+const CTX_COLORS = {
+  'Messages': 'var(--cyan)', 'Memory files': 'var(--gold)', 'System tools': 'var(--green)',
+  'Skills': 'var(--amber)', 'Custom agents': '#a78bfa', 'System prompt': 'var(--muted2)',
+  'MCP tools': '#f472b6', 'MCP server instructions': '#fb923c',
+};
+const CTX_OPEN = new Set();          // açık bırakılan döküm yenilemede kapanmasın
+function ctxTok(n) {
+  if (n == null) return '—';
+  return n >= 1e6 ? roundHalfUp(n / 1e6, 2) + 'M' : n >= 1000 ? roundHalfUp(n / 1000, 1) + 'k' : String(n);
+}
+function ctxList(title, items, key) {
+  if (!items || !items.length) return '';
+  const total = items.reduce((a, x) => a + (x.tokens || 0), 0);
+  const rows = items.map(x => {
+    const name = key === 'path' ? String(x.name || '').split('/').slice(-2).join('/') : x.name;
+    return `<li><span class="ctx-li-name" title="${esc(x.name)}">${esc(name)}</span><span>${ctxTok(x.tokens)}</span></li>`;
+  }).join('');
+  return `<details class="ctx-sub"><summary>${esc(title)} <small>${items.length} · ${ctxTok(total)}</small></summary><ul>${rows}</ul></details>`;
+}
+function renderContext(d) {
+  const list = (d && d.sessions) || [];
+  $('ctx-count').textContent = `${list.length} ${t('ctxSessions')}`;
+  if (!list.length) { $('ctx-rows').innerHTML = `<p class="muted">${t('ctxNone')}</p>`; return; }
+  $('ctx-rows').innerHTML = list.map(s => {
+    const win = s.window || 1;
+    const bd = s.breakdown;
+    const cats = bd ? bd.categories.filter(c => c.kind === 'used') : [];
+    const segs = cats.map(c => `<i style="width:${(c.tokens * 100 / win).toFixed(2)}%;background:${CTX_COLORS[c.name] || 'var(--line2)'}" title="${esc(c.name)} ${ctxTok(c.tokens)}"></i>`).join('')
+      || (s.total && s.window ? `<i style="width:${(s.total * 100 / win).toFixed(2)}%;background:var(--cyan-dim)"></i>` : '');
+    const mark = s.compact_at ? `<b class="ctx-mark" style="left:${(s.compact_at * 100 / win).toFixed(2)}%" title="${t('ctxCompact')} ${ctxTok(s.compact_at)}"></b>` : '';
+    // Pencere boyu ölçülmeden yüzde verilmez: 200k/1M tahmini %19'u %95 gösteriyordu.
+    const pctTxt = !s.total ? t('ctxNew') : !s.window ? `${ctxTok(s.total)} · ${t('ctxMeasuring')}`
+      : `${ctxTok(s.total)} / ${ctxTok(win)} (${Math.round(s.percent)}%)`;
+    const toCompact = s.compact_at && s.total ? s.total / s.compact_at * 100 : null;
+    const cls = toCompact == null ? 'none' : toCompact >= 90 ? 'crit' : toCompact >= 70 ? 'warn' : 'ok';
+    const legend = bd ? bd.categories.filter(c => c.kind !== 'deferred' && !(c.kind === 'buffer' && s.compact_at)).map(c =>
+      `<li><span><i style="background:${c.kind === 'free' ? 'transparent' : c.kind === 'buffer' ? 'var(--line2)' : (CTX_COLORS[c.name] || 'var(--line2)')}"></i>${esc(c.name)}</span><span>${ctxTok(c.tokens)}</span><span class="muted">${(c.tokens * 100 / win).toFixed(1)}%</span></li>`).join('') : '';
+    const deferred = bd ? bd.categories.filter(c => c.kind === 'deferred') : [];
+    const defTxt = deferred.length ? `<p class="note">${deferred.map(c => `${esc(c.name)} ${ctxTok(c.tokens)}`).join(' · ')} — ${t('ctxDeferred')}</p>` : '';
+    const body = bd ? `<ul class="ctx-legend">${legend}</ul>${defTxt}
+        ${ctxList(t('ctxMemFiles'), bd.memory_files, 'path')}${ctxList(t('ctxSkills'), bd.skills)}
+        ${ctxList(t('ctxAgents'), bd.agents)}${ctxList(t('ctxMcp'), bd.mcp_tools)}
+        <p class="note">${t('ctxAge')}: ${s.breakdown_age_sec < 60 ? t('ctxJustNow') : fmtAge(s.breakdown_age_sec) + ' ' + t('ago')}${s.breakdown_error ? ' · ⚠ ' + esc(s.breakdown_error) : ''}</p>`
+      : `<p class="muted">${s.total ? t('ctxMeasuring') : ''}</p>`;
+    const status = s.status === 'busy' ? `<span class="ctx-dot busy"></span>${t('ctxBusy')}` : `<span class="ctx-dot"></span>${t('ctxIdle')}`;
+    return `<details class="ctx-row" data-sid="${esc(s.session_id)}"${CTX_OPEN.has(s.session_id) ? ' open' : ''}>
+      <summary><div class="lbar-head"><span class="lbar-name">${esc(s.name || s.session_id.slice(0, 8))} <small>${status} · ${esc(s.model || '')}</small></span>
+        <span class="lbar-pct ${cls}">${pctTxt}</span></div>
+        <div class="ctx-track${s.window ? '' : ' unmeasured'}">${segs}${mark}</div>
+        ${s.compact_at && s.total ? `<div class="lbar-sub"><span>${t('ctxCompact')} ${ctxTok(s.compact_at)}</span><span>${t('ctxFree')} ${ctxTok(Math.max(0, s.compact_at - s.total))}</span></div>` : ''}
+      </summary>${body}</details>`;
+  }).join('');
+  $('ctx-rows').querySelectorAll('details.ctx-row').forEach(el => el.addEventListener('toggle', () => {
+    el.open ? CTX_OPEN.add(el.dataset.sid) : CTX_OPEN.delete(el.dataset.sid);
+  }));
+}
+
 // ── döngü ────────────────────────────────────────────────
 // Widget mode (floating app window): ?w=1 → compact, chromeless layout.
 // Glance mode (floating glance window): ?w=2 → ultra-compact, single-metric display.
@@ -575,6 +649,8 @@ async function refresh() {
       currentProviders = prov.providers || [];  // Global state güncelle
       renderProviders(currentProviders);
       renderGlanceStrip(usage, currentProviders);
+      // Bağlam kartı ayrı çekilir: yavaşlarsa limit/harcama kartlarını bekletmesin.
+      getJSON('/api/context').then(renderContext).catch(e => console.error('context failed:', e));
     }
   } catch (e) {
     $('updated').textContent = 'hata: ' + e.message;

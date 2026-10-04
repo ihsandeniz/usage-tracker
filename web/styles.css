@@ -478,3 +478,32 @@ body.glance .settings-section { display:none; }
 .gfill.none{background:var(--line2)}
 .gsub{font-size:11px;color:var(--muted)}
 body.widget .glance-strip,body.glance .glance-strip{display:none}
+
+/* ── bağlam penceresi ─────────────────────────────────── */
+.context-section{grid-column:1/-1}
+.ctx-row .lbar-head{gap:12px}
+.ctx-row .lbar-pct{white-space:nowrap}
+.ctx-row{border-bottom:1px solid var(--line);padding:10px 0}
+.ctx-row:last-child{border-bottom:0}
+.ctx-row>summary{list-style:none;cursor:pointer}
+.ctx-row>summary::-webkit-details-marker{display:none}
+.lbar-pct.ok{color:var(--green)} .lbar-pct.warn{color:var(--amber)} .lbar-pct.crit{color:var(--red)}
+.lbar-pct.none{color:var(--muted2)}
+.ctx-track{position:relative;display:flex;height:10px;background:var(--card2);border:1px solid var(--line);
+  border-radius:20px;overflow:hidden}
+.ctx-track.unmeasured{background-image:repeating-linear-gradient(135deg,transparent 0 5px,var(--line2) 5px 6px)}
+.ctx-track i{display:block;height:100%}
+.ctx-mark{position:absolute;top:-1px;bottom:-1px;width:0;border-left:2px dashed var(--txt);opacity:.7}
+.ctx-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:4px}
+.ctx-dot.busy{background:var(--green);box-shadow:0 0 8px var(--green)}
+.ctx-legend{list-style:none;margin:12px 0 6px;padding:0;display:grid;gap:3px;font-size:12px}
+.ctx-legend li{display:grid;grid-template-columns:1fr auto 56px;gap:10px;font-variant-numeric:tabular-nums}
+.ctx-legend li span:nth-child(n+2){text-align:right}
+.ctx-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px;
+  border:1px solid var(--line2);vertical-align:-1px}
+.ctx-sub{margin:4px 0;font-size:12px}
+.ctx-sub summary{cursor:pointer;color:var(--muted2)}
+.ctx-sub summary small{color:var(--muted);margin-left:6px}
+.ctx-sub ul{list-style:none;margin:4px 0 6px 14px;padding:0;max-height:180px;overflow:auto}
+.ctx-sub li{display:flex;justify-content:space-between;gap:10px;color:var(--muted2);font-variant-numeric:tabular-nums}
+.ctx-li-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

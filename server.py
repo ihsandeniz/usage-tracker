@@ -7,6 +7,7 @@ Port 8770 · 127.0.0.1 bind · stdlib-only · sıfır bağımlılık · build'si
   GET  /api/usage        → Claude limit paneli (oturum/haftalık, kalibrasyon)
   GET  /api/spend[?days] → gerçek $ harcama (Today/Yesterday/30g + per-model + per-day)
   GET  /v1/usage         → interop wire-format (overlay/waybar/eww için stabil sözleşme)
+  GET  /api/context      → açık oturumların bağlam penceresi dökümü (/context kırılımı)
   POST /api/calibrate    → gerçek /usage %'siyle limit bütçesini çapala
 
 Güvenlik: yalnız loopback · credential dosyalarına dokunmaz · SADECE ~/.claude/projects OKUR.
@@ -262,6 +263,14 @@ class Handler(BaseHTTPRequestHandler):
                 days = 30
             days = max(1, min(90, days))
             self._json(200, engine.compute_spend(days)); return
+
+        if path in ('/api/context', '/api/context/'):
+            # Oturum başına bağlam dökümü. Toplam her istekte taze; kategori kırılımı
+            # önbellekten, arka planda tek işçiyle tazelenir (usage/context.py).
+            if os.environ.get('USAGE_DEMO') == '1':
+                self._json(200, {'sessions': [], 'pending': 0, 'demo': True}); return
+            from usage import context
+            self._json(200, context.compute()); return
 
         if path in ('/api/providers', '/api/providers/'):
             try:
