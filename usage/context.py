@@ -51,9 +51,26 @@ _WORKER = {'alive': False}
 # ── open sessions ───────────────────────────────────────────────────────────
 def _pid_alive(pid):
     try:
-        os.kill(int(pid), 0)
+        pid = int(pid)
+    except (ValueError, TypeError):
+        return False
+    if os.name == 'nt':
+        # os.kill(pid, 0) is NOT a liveness probe on Windows: 0 == signal.CTRL_C_EVENT, so it
+        # sends Ctrl+C to the console group — CI's unittest died of KeyboardInterrupt.
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)        # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(k32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259
+        finally:
+            k32.CloseHandle(h)                           # 259 = STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
         return True
-    except (OSError, ValueError, TypeError):
+    except OSError:
         return False
 
 
