@@ -12,8 +12,11 @@ Kurulum (~/.claude/settings.json):
 
 Hiçbir koşulda hata basmaz ve 0 dışında çıkmaz: durum satırı her oturumda koşar.
 """
+from __future__ import annotations  # README Python 3.9 vaat ediyor: `X | None` 3.9'da yüklenirken patlar
+
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -209,12 +212,17 @@ def main():
     parcalar = []
     okuma = baglam_okuma(payload)
     if okuma and okuma[0] > 0:
-        sid = str(payload.get('session_id') or '')
+        # dosya adına girer: yalnız güvenli karakterler
+        sid = re.sub(r'[^A-Za-z0-9_-]', '', str(payload.get('session_id') or ''))[:64]
         parcalar.append(bant(*okuma, gecmis_guncelle(sid, okuma[0])))
     if windows:
         parcalar.append(line(windows))
     if parcalar:
-        print('  · '.join(parcalar))
+        metin = '  · '.join(parcalar)
+        try:
+            print(metin)
+        except UnicodeEncodeError:  # Windows cp1252 konsolu bant karakterlerini basamıyor
+            sys.stdout.buffer.write((metin + '\n').encode('utf-8', 'replace'))
 
 
 if __name__ == '__main__':

@@ -13,10 +13,15 @@ Tasarım kararları:
   (eşiği preset'e sabitlemek, iki yerde iki gerçek demek olurdu).
 """
 import json
+import os
+import sys
 import zipfile
 from pathlib import Path
 
-URL = 'https://ihsan.tailf382a6.ts.net/usage/rozet.json'
+# Kendi adresin: `python3 kwgt-preset-uret.py https://<makine>.<tailnet>.ts.net/usage/rozet.json`
+# ya da USAGE_ROZET_URL. Verilmezse yer tutucu yazılır, KWGT'de `url` global'inden değiştirilir.
+URL = (sys.argv[1] if len(sys.argv) > 1 else
+       os.environ.get('USAGE_ROZET_URL', 'https://<makine>.ts.net/usage/rozet.json'))
 CIKTI = Path(__file__).parent / 'AI-Kullanim.kwgt'
 
 CYAN, GOLD, KIRMIZI, SOLUK = '#FF22D3EE', '#FFFFC857', '#FFFF5555', '#FF8B9BB4'

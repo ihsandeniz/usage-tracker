@@ -141,15 +141,20 @@ def _compact_pct(pid):
         env = Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
         for kv in env:
             if kv.startswith(b'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE='):
-                return float(kv.split(b'=', 1)[1])
+                return _valid_pct(float(kv.split(b'=', 1)[1]))
     except Exception:
         pass
     try:
         s = json.loads((CLAUDE_DIR / 'settings.json').read_text(encoding='utf-8'))
         v = (s.get('env') or {}).get('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE')
-        return float(v) if v else None
+        return _valid_pct(float(v)) if v else None
     except Exception:
         return None
+
+
+def _valid_pct(v):
+    """inf/nan/0/>100 → None (same range as statusline.compact_pct) so /api/context never crashes."""
+    return v if 0 < v <= 100 else None
 
 
 # ── breakdown (headless /context on a fork) ─────────────────────────────────
