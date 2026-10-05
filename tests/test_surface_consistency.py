@@ -107,6 +107,8 @@ class Y7Rounding(unittest.TestCase):
         # 2 sn'lik bütçe jq'nun yuvarlamasını değil, koşucunun disk hızını ölçüyordu:
         # windows-latest'te süreç açılışı bunu aştı ve test **yuvarlama yüzünden değil**
         # zaman aşımıyla düştü (2026-08-13). Yeni bütçe bir askıyı hâlâ yakalar.
+        if not shutil.which('jq'):
+            self.skipTest('jq not installed')
         result = subprocess.run(
             ['jq', '-n', f'({v}*10|round/10)'],
             capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30
@@ -405,8 +407,8 @@ class StalenessReachesEverySurface(unittest.TestCase):
         # Windows before), but it is not a defect in a surface that cannot exist there.
         if sys.platform.startswith('win'):
             self.skipTest('waybar feeder is the Linux surface; the Windows path is the CLI feeder')
-        if not shutil.which('jq'):
-            self.skipTest('jq not installed')
+        if not shutil.which('jq') or not shutil.which('bash'):
+            self.skipTest('jq or bash not installed')
         payload = json.dumps(wire).encode('utf-8')
 
         class H(SimpleHTTPRequestHandler):

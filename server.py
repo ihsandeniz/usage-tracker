@@ -222,6 +222,18 @@ class Handler(BaseHTTPRequestHandler):
             return True
         self._error(403, 'cross-origin write refused'); return False
 
+    def _check_same_site_get(self) -> bool:
+        """Yan etkili GET'ler (`/api/context` → `claude` fork'u, `/api/live?force=1` → Anthropic
+        isteği) için CSRF kapısı. Başka bir sayfanın `fetch(…, {mode:'no-cors'})` isteği
+        yanıtı okuyamaz ama yan etkiyi tetikler; no-cors GET'te Origin de gönderilmez.
+        `Sec-Fetch-Site` (Chrome/Firefox/Safari 16.4+) bunu söyler: `cross-site` ya da
+        `same-site` (aynı makinedeki başka port) → red. Başlık yoksa tarayıcı dışı istemcidir.
+        """
+        site = (self.headers.get('Sec-Fetch-Site') or '').strip().lower()
+        if site in ('cross-site', 'same-site'):
+            self._error(403, 'cross-site request refused'); return False
+        return self._check_origin()
+
     def _read_json_body(self, limit: int = 2048):
         try:
             n = int(self.headers.get('Content-Length', 0))
@@ -252,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path in ('/api/live', '/api/live/'):
             # canlı Anthropic usage yanıtı (ham + normalize) — doğrulama/hata ayıklama için
+            if not self._check_same_site_get():
+                return
             from usage import live
             force = parse_qs(parsed.query).get('force', ['0'])[0] == '1'
             self._json(200, live.fetch(force=force)); return
@@ -267,10 +281,14 @@ class Handler(BaseHTTPRequestHandler):
         if path in ('/api/context', '/api/context/'):
             # Oturum başına bağlam dökümü. Toplam her istekte taze; kategori kırılımı
             # önbellekten, arka planda tek işçiyle tazelenir (usage/context.py).
+            # `?breakdown=0` (widget) ya da USAGE_CONTEXT_BREAKDOWN=0 → `claude` fork'u yok.
+            if not self._check_same_site_get():
+                return
             if os.environ.get('USAGE_DEMO') == '1':
                 self._json(200, {'sessions': [], 'pending': 0, 'demo': True}); return
             from usage import context
-            self._json(200, context.compute()); return
+            bd = parse_qs(parsed.query).get('breakdown', ['1'])[0] != '0'
+            self._json(200, context.compute(breakdown=bd and context.breakdown_enabled())); return
 
         if path in ('/api/providers', '/api/providers/'):
             try:

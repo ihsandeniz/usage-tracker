@@ -650,7 +650,10 @@ async function refresh() {
       renderProviders(currentProviders);
       renderGlanceStrip(usage, currentProviders);
       // Bağlam kartı ayrı çekilir: yavaşlarsa limit/harcama kartlarını bekletmesin.
-      getJSON('/api/context').then(renderContext).catch(e => console.error('context failed:', e));
+      // Kategori kırılımı her oturum için arka planda bir `claude` süreci açar: widget'ta ve
+      // görünmeyen sekmede istenmez (yalnız toplamlar gelir).
+      const bd = wParam || document.hidden ? 0 : 1;
+      getJSON(`/api/context?breakdown=${bd}`).then(renderContext).catch(e => console.error('context failed:', e));
     }
   } catch (e) {
     $('updated').textContent = 'hata: ' + e.message;

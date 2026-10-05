@@ -88,6 +88,9 @@ class LiveFreshnessIsExplicit(unittest.TestCase):
         live._CACHE, live._RETRY_AT = None, 0.0
         self._no_sl = mock.patch.object(live, '_load_statusline', return_value=None)
         self._no_sl.start()
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        self._retry = mock.patch.object(live, '_retry_path', return_value=Path(td.name) / 'retry.json')
+        self._retry.start(); self.addCleanup(self._retry.stop)
 
     def tearDown(self):
         self._no_sl.stop()
@@ -146,6 +149,27 @@ class LiveFreshnessIsExplicit(unittest.TestCase):
             after = live.fetch()
         self.assertEqual(raw2.call_count, 1, 'süre dolunca yeniden denenmeli')
         self.assertIs(after['cached'], False)
+
+    def test_retry_after_survives_a_new_process(self):
+        """F007: polybar/i3blocks run a fresh process every tick; the wait must be on disk."""
+        live._CACHE = None
+        limited = {'ok': False, 'error': 'HTTP 429 (Too Many Requests)', 'raw': None,
+                   'rateLimited': True, 'retryAfterSec': 600.0}
+        with mock.patch.object(live, '_read_token', return_value=('token', 0, None)), \
+                mock.patch.object(live, '_load_disk_cache', return_value=None), \
+                mock.patch.object(live, '_fetch_raw', return_value=limited), \
+                mock.patch.object(live.time, 'time', return_value=5000.0):
+            live.fetch()
+        live._CACHE, live._RETRY_AT = None, 0.0            # "new process"
+        raw = mock.Mock(return_value={'ok': True, 'error': None, 'windows': {}})
+        with mock.patch.object(live, '_read_token', return_value=('token', 0, None)), \
+                mock.patch.object(live, '_load_disk_cache', return_value=None), \
+                mock.patch.object(live, '_fetch_raw', raw), \
+                mock.patch.object(live.time, 'time', return_value=5300.0):
+            res = live.fetch()
+        raw.assert_not_called()
+        self.assertIs(res['rateLimited'], True)
+        self.assertEqual(res['retryAtMs'], 5_600_000)
 
     def test_retry_after_is_bounded(self):
         self.assertEqual(live._retry_after_sec({}), live.RETRY_DEFAULT_SEC)
@@ -206,7 +230,9 @@ class LiveFreshnessIsExplicit(unittest.TestCase):
             'spend_limit': {'used_percentage': 3}}})
         self.assertEqual(got, {'five_hour': {'used_percentage': 8.0, 'resets_at': 1}})
         self.assertEqual(sl.extract({}), {})
-        self.assertEqual(sl.line(got), '5s %8')
+        for lang, want in (('tr', '5s %8'), ('en', '5h %8')):   # makinenin diline bağlı kalmasın
+            with mock.patch.dict(os.environ, {'UT_LANG': lang}):
+                self.assertEqual(sl.line(got), want)
 
     def test_v1_wire_forwards_live_age_metadata(self):
         live_meta = {
@@ -245,6 +271,10 @@ class DayWindowsFollowTheCalendar(unittest.TestCase):
     def setUp(self):
         if not hasattr(time, 'tzset'):
             self.skipTest('no tzset on this platform')
+        if not Path('/usr/share/zoneinfo', self.TZ).exists():
+            # Without tzdata (Alpine, slim containers) TZ silently becomes UTC: a FAIL
+            # there measures the image, not the code.
+            self.skipTest('tzdata not installed')
         self._old_tz = os.environ.get('TZ')
         os.environ['TZ'] = self.TZ
         time.tzset()

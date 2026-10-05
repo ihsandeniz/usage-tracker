@@ -266,7 +266,7 @@ usage-tracker doctor --probe         # also contact provider APIs (network, uses
   ✓ Price catalogue   bundled snapshot · 5,857 models · 9 days old
   ✓ Claude data       ~/.claude/projects · 500+ transcript file(s)
   ! Server            http://127.0.0.1:8770/v1/usage unreachable (URLError)
-      → Start it with `./service.sh start` — the CLI works without it, surfaces do not.
+      → Start it with `./start.sh` (or `./service.sh install` to autostart) — the CLI works without it, surfaces do not.
   ✓ Local computation assembled in 0.42s · session 7.0% · 30d $5,032.13
   ✓ Provider keys     none set · unset: deepseek, elevenlabs, openai, openrouter, …
 ```

@@ -538,11 +538,14 @@ def _badge(wire, source, provider='claude') -> dict:
 def render_waybar(wire, source, provider='claude') -> dict:
     """The Bash+jq feeder, without Bash and without jq — so Windows can have a badge too."""
     b = _badge(wire, source, provider)
+    # waybar renders the tooltip as Pango markup: an error like `<urlopen error …>` made it
+    # drop the whole tooltip.
+    tooltip = _xml_escape(b['tooltip'])
     if b['offline']:
-        return {'text': b['text'], 'tooltip': b['tooltip'], 'class': 'off'}
+        return {'text': b['text'], 'tooltip': tooltip, 'class': 'off'}
     return {
         'text': b['text'],
-        'tooltip': b['tooltip'],
+        'tooltip': tooltip,
         'class': b['css'],
         'percentage': int(b['pct']) if b['pct'] is not None else 0,
     }
@@ -590,11 +593,12 @@ def render_argos(wire, source, provider='claude') -> str:
 
     Line 1 is the panel button; everything after `---` is the dropdown. Argos splits menu
     lines on `|`, so the tooltip's own pipes are stripped rather than escaped — a broken
-    menu entry is worse than a missing separator.
+    menu entry is worse than a missing separator. Lines are Pango markup by default, so
+    they are escaped too (a `<urlopen error …>` broke the dropdown).
     """
     b = _badge(wire, source, provider)
-    head = f'{b["text"]} | color={b["color"]}'
-    body = [line.replace('|', '¦') for line in b['tooltip'].split('\n')]
+    head = f'{_xml_escape(b["text"])} | color={b["color"]}'
+    body = [_xml_escape(line.replace('|', '¦')) for line in b['tooltip'].split('\n')]
     return '\n'.join([head, '---'] + [f'{line} | font=monospace' for line in body])
 
 
@@ -889,7 +893,9 @@ def collect_doctor(args) -> dict:
                None if schema == 'usage/v1' else 'Unexpected schema — is that really usage-tracker?')
     except Exception as exc:
         _check(checks, 'server', 'warn', 'Server', f'{target} unreachable ({type(exc).__name__})',
-               'Start it with `./service.sh start` — the CLI works without it, surfaces do not.')
+               ('Start it with `usage-tracker panel`' if os.name == 'nt' else
+                'Start it with `./start.sh` (or `./service.sh install` to autostart)')
+               + ' — the CLI works without it, surfaces do not.')
 
     # 6. can we build the numbers here, and how long does it take
     started = time.time()

@@ -35,16 +35,20 @@ from usage import engine, settings, viewconfig
 _NO_LIVE = mock.patch('usage.live._fetch_raw',
                       return_value={'ok': False, 'error': 'test: ağ kapalı', 'raw': None})
 _NO_STATUSLINE = mock.patch('usage.live._load_statusline', return_value=None)
+# makinedeki gerçek 429 bekleme dosyası testi etkilemesin
+_NO_RETRY_FILE = mock.patch('usage.live._load_retry_at', return_value=0.0)
 
 
 def setUpModule():
     _NO_LIVE.start()
     _NO_STATUSLINE.start()
+    _NO_RETRY_FILE.start()
 
 
 def tearDownModule():
     _NO_LIVE.stop()
     _NO_STATUSLINE.stop()
+    _NO_RETRY_FILE.stop()
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -331,6 +335,38 @@ class HttpEndpoint(_Isolated):
                 code, _ = self.call('POST', path, {'hidden_providers': []},
                                     headers={'Origin': 'http://evil.example'})
                 self.assertEqual(code, 403, f'{path} still accepts a cross-origin write')
+
+    def test_side_effect_gets_refuse_other_sites(self):
+        """SEC-F003: `/api/context` forks `claude`, `/api/live?force=1` hits Anthropic. A page's
+        no-cors GET cannot read the answer but would still trigger both; it sends no Origin,
+        only Sec-Fetch-Site."""
+        from usage import context, live
+        with mock.patch.object(context, 'compute', return_value={'sessions': []}) as comp, \
+                mock.patch.object(live, 'fetch', return_value={'ok': True}) as fetch:
+            for path in ('/api/context', '/api/live?force=1'):
+                for site in ('cross-site', 'same-site'):
+                    with self.subTest(path=path, site=site):
+                        code, _ = self.call('GET', path, headers={'Sec-Fetch-Site': site})
+                        self.assertEqual(code, 403)
+                code, _ = self.call('GET', path, headers={'Origin': 'http://evil.example'})
+                self.assertEqual(code, 403)
+            comp.assert_not_called()
+            fetch.assert_not_called()
+            for site in ('same-origin', 'none', None):
+                with self.subTest(site=site):
+                    code, _ = self.call('GET', '/api/context',
+                                        headers={'Sec-Fetch-Site': site} if site else None)
+                    self.assertEqual(code, 200)
+
+    def test_context_breakdown_can_be_turned_off(self):
+        """F005: the widget asks without the breakdown; USAGE_CONTEXT_BREAKDOWN=0 turns it off."""
+        from usage import context
+        with mock.patch.object(context, 'compute', return_value={'sessions': []}) as comp:
+            self.call('GET', '/api/context')
+            self.call('GET', '/api/context?breakdown=0')
+            with mock.patch.dict(os.environ, {'USAGE_CONTEXT_BREAKDOWN': '0'}):
+                self.call('GET', '/api/context')
+        self.assertEqual([c.kwargs['breakdown'] for c in comp.call_args_list], [True, False, False])
 
     def test_a_request_without_an_origin_is_allowed_on_purpose(self):
         """Pinning a decision, not an accident.

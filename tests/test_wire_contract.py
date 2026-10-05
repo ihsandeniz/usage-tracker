@@ -39,6 +39,32 @@ SURFACE_READS = [
 ]
 
 
+def _richest(a, b):
+    """Two values of the same field: keep whichever exposes more structure, recursively."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return {k: _richest(a.get(k), b.get(k)) for k in a.keys() | b.keys()}
+    return a if b is None else b if a is None else a
+
+
+def _richest_bars(card):
+    """A demo card whose every limit bar carries the fields of ALL its bars.
+
+    The demo's bars differ on purpose (one expired → `forecast: null`, one live → object).
+    Production's bars depend on the clock: a Codex session in the last 5 h makes the
+    session bar live, its `forecast` an object, and the walk failed with "demo has
+    NoneType" — red on the laptop, green on CI. The question this test asks is whether the
+    demo can show a field's shape at all, and the weekly bar shows it.
+    """
+    limits = card.get('limits') if isinstance(card, dict) else None
+    if not isinstance(limits, dict) or not limits:
+        return card
+    bars = [b for b in limits.values() if isinstance(b, dict)]
+    merged = {}
+    for b in bars:
+        merged = _richest(merged, b)
+    return dict(card, limits={k: merged if isinstance(v, dict) else v for k, v in limits.items()})
+
+
 def _missing_fields(prod, fake, path='$'):
     """Field paths present in the production value and absent from the demo one.
 
@@ -255,7 +281,7 @@ class DemoLooksLikeProduction(_QuietWire):
             self.skipTest('no adapter card exists in both the demo and this machine')
         for cid in shared:
             with self.subTest(card=cid):
-                missing = _missing_fields(prod[cid], fake[cid])
+                missing = _missing_fields(prod[cid], _richest_bars(fake[cid]))
                 self.assertFalse(
                     missing,
                     f'the demo "{cid}" card cannot exercise these production fields:\n  '

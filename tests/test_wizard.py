@@ -31,16 +31,20 @@ from usage import wizard
 _NO_LIVE = mock.patch('usage.live._fetch_raw',
                       return_value={'ok': False, 'error': 'test: ağ kapalı', 'raw': None})
 _NO_STATUSLINE = mock.patch('usage.live._load_statusline', return_value=None)
+# makinedeki gerçek 429 bekleme dosyası testi etkilemesin
+_NO_RETRY_FILE = mock.patch('usage.live._load_retry_at', return_value=0.0)
 
 
 def setUpModule():
     _NO_LIVE.start()
     _NO_STATUSLINE.start()
+    _NO_RETRY_FILE.start()
 
 
 def tearDownModule():
     _NO_LIVE.stop()
     _NO_STATUSLINE.stop()
+    _NO_RETRY_FILE.stop()
 
 
 class _Sandbox(unittest.TestCase):

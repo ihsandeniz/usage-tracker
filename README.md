@@ -91,7 +91,11 @@ Prefer to do it by hand? Skip the wizard:
 ./start.sh            # → http://127.0.0.1:8770
 ```
 
-**Requirements:** Python 3.9+ (stdlib). `curl` + `jq` for the waybar feeder. A Chromium-family
+**Requirements:** Python 3.9+ (stdlib). `bash`, `curl` + `jq` (1.6 or newer) for the waybar
+feeder — no bash (e.g. Alpine)? `sh surface/waybar-usage.sh` works with busybox too.
+**macOS** is not tested. The panel and spend should work, but Claude Code keeps its login in the
+Keychain there, not in `~/.claude/.credentials.json`, so live limits come only through the
+[status line](surface/README.md#option-d--claude-code-status-line-as-the-live-limit-source-statuslinepy). A Chromium-family
 browser (optional, for the floating widget), `hyprctl` (optional, auto-floats the widget on
 Hyprland), `wl-copy`/`xclip` (optional, lets the wizard copy the waybar snippet). `install.sh`
 reports what's missing.
@@ -334,7 +338,7 @@ sets: [`docs/CLI.md`](docs/CLI.md).
 ### Where your data lives
 
 Nothing is written into the installation directory — it may be read-only (a PyInstaller
-bundle, `Program Files`, `/usr/lib`, a container). Run `python3 -m usage.platform` to print
+bundle, `Program Files`, `/usr/lib`, a container). Run `python3 server.py doctor` to print
 the exact paths on your machine.
 
 | | Linux / BSD | Windows |
@@ -384,9 +388,19 @@ Provider adapters live in `usage/providers/`. Each module exposes `collect(days)
 | `GET /api/usage` | Claude limit panel (`source: live\|calibration`) |
 | `GET /api/live[?force=1]` | Raw Anthropic live usage (verification) |
 | `GET /api/providers` | Multi-provider cards |
+| `GET /api/context[?breakdown=0]` | Context-window fill of every open Claude Code session |
 | `GET /v1/usage` | Stable wire-format (`schema: usage/v1`) — used by the waybar feeder |
 | `GET /api/settings` | Thresholds, refresh, display currency + key **names** and set/unset |
 | `POST /api/settings` | Change them (validated; keys are refused by design) |
+
+**The context card runs `claude` in the background.** The per-session category breakdown
+(Messages · Memory files · MCP tools …) is Claude Code's own `/context`, run headless on a
+*fork* of each open session: `claude -p --resume <id> --fork-session --no-session-persistence`.
+The source transcript is not touched and hooks are off, but each run starts your full Claude
+Code setup (MCP servers, plugins) — at most once per session every 2 minutes, one at a time,
+only while the full panel is open and visible. The floating widget never asks for it. Turn it
+off with `USAGE_CONTEXT_BREAKDOWN=0` (totals keep working); `USAGE_CLAUDE_BIN` points at a
+`claude` that is not on `PATH`.
 
 `/v1/usage` is a public contract, not an internal detail: four surfaces here read it and so may
 your scripts. The fields, the compatibility rules and what changed when are in
@@ -400,6 +414,9 @@ your scripts. The fields, the compatibility rules and what changed when are in
 - Static file serving is path-traversal protected.
 - Writing endpoints validate both `Host` and `Origin`. A page on the open internet can reach
   `127.0.0.1`, but it cannot write: a foreign `Origin` is refused with 403.
+- The two reads with side effects — `/api/context` (starts `claude`) and `/api/live?force=1`
+  (calls Anthropic) — also refuse other sites (`Sec-Fetch-Site: cross-site|same-site`, or a
+  foreign `Origin`), so a page cannot trigger them with a blind `no-cors` request.
 - No endpoint ever returns an API key's value, and none writes one.
 
 ## Development

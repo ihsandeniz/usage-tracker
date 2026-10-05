@@ -227,7 +227,7 @@ Notifications are deduped using `~/.local/share/usage-tracker/notify-state`:
 Claude Code already receives your current limit percentages with every API response and
 hands them to the status line script on stdin (`rate_limits.five_hour` / `seven_day`).
 `statusline.py` saves them to `~/.local/state/usage-tracker/statusline-limits.json` and
-prints a short line (`5s %8 · 7g %29`). While that record is younger than 10 minutes,
+prints a short line (`5h %8 · 7d %29`; Turkish locale: `5s %8 · 7g %29`). While that record is younger than 10 minutes,
 `usage/live.py` uses it and **makes no request** to `api/oauth/usage` — that endpoint is
 aggressively rate-limited (a 429 can carry `Retry-After` of ~45 min). With no Claude Code
 session running the record ages out and the old API path takes over, honoring `Retry-After`.
@@ -240,3 +240,20 @@ session running the record ages out and the old API path takes over, honoring `R
 Only the 5-hour and 7-day windows arrive this way; the per-model weekly bar keeps its
 calibrated estimate. The wire reports which path fed the numbers in `live.source`
 (`statusline` · `api`). The script never prints an error and always exits 0.
+
+How the record stays honest:
+
+- **Its time is when the numbers were observed, not when they were written.** An idle session
+  redraws its status line too, carrying the percentages of its *last* API response. The record
+  takes that time from the session transcript's last change, so a machine with only idle
+  sessions ages out after 10 minutes and the API path sees usage from other devices again.
+- **A window that has already reset is dropped** — from the file and from an incoming session
+  alike. Otherwise an idle session would bring the old 95 % into the new window and `guard`
+  would report critical.
+- Several sessions write the same file; within one window the higher percentage wins.
+
+The line also shows a context band: fill, tokens left before auto-compact and a short trend.
+The compact point is `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` × window when that is set, otherwise
+window − 33k (Claude Code's autocompact buffer, ~83 % of 200k). Labels follow the panel's
+language (`UT_LANG`, then the system locale); per-session history files older than 7 days
+are pruned.

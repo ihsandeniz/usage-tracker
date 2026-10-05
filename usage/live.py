@@ -169,6 +169,31 @@ def _save_disk_cache(at: float, res: dict):
         pass                    # cache lüks; yazamazsak sessizce devam
 
 
+def _retry_path():
+    from . import platform as _paths
+    return _paths.state_dir() / 'live-retry-at.json'
+
+
+def _load_retry_at(now: float) -> float:
+    """Diskteki 429 bekleme bitişi. Sunucusuz CLI (polybar/i3blocks/genmon) her tikte yeni süreç
+    açar; bellekteki `_RETRY_AT` orada hep 0'dı ve 429 altında her tik uca yeniden vuruyordu."""
+    try:
+        v = json.loads(_retry_path().read_text(encoding='utf-8')).get('retryAt')
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return min(float(v), now + RETRY_MAX_SEC)   # bozuk/aşırı değer kalıcı kör etmesin
+    except Exception:
+        pass
+    return 0.0
+
+
+def _save_retry_at(at: float):
+    try:
+        from . import platform as _paths
+        _paths.atomic_write_text(_retry_path(), json.dumps({'retryAt': at}))
+    except Exception:
+        pass
+
+
 def _statusline_path():
     from . import platform as _paths
     return _paths.state_dir() / 'statusline-limits.json'
@@ -239,6 +264,8 @@ def fetch(force: bool = False) -> dict:
             res = _with_freshness(_CACHE[1], _CACHE[0], now)
             res['cached'] = True
             return res
+        if _RETRY_AT < now:
+            _RETRY_AT = max(_RETRY_AT, _load_retry_at(now))   # başka süreç 429 yemiş olabilir
         if now < _RETRY_AT:
             # 429 bekleme süresi dolmadı: ağa çıkmak cezayı uzatmaktan başka işe yaramaz
             # (force dahil). Son iyi değeri, sebebi ve tekrar deneme anıyla göster.
@@ -247,6 +274,7 @@ def fetch(force: bool = False) -> dict:
     with _LOCK:
         if res.get('rateLimited'):
             _RETRY_AT = time.time() + float(res.get('retryAfterSec') or RETRY_DEFAULT_SEC)
+            _save_retry_at(_RETRY_AT)
             return _rate_limited(res, now)
         # başarılı sonucu cache'le; başarısızsa son iyi sonucu koru ama hatayı da bildir
         if res.get('ok'):

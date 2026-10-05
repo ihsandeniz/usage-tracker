@@ -980,9 +980,14 @@ DID_SERVER=no; DID_WAYBAR=no; DID_WIDGET=no; DID_TRAY=no; DID_KEYS=0
 # ── 1) dependencies + base config ──────────────────────────────────────────
 step "1/6  Dependencies & base config"
 MISSING=""
-command -v python3 >/dev/null 2>&1 \
-  && ok "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)" \
-  || { bad "python3 missing — the server can't run"; MISSING="$MISSING python"; }
+if ! command -v python3 >/dev/null 2>&1; then
+  bad "python3 missing — the server can't run"; MISSING="$MISSING python"
+elif python3 -c 'import sys;sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+  ok "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)"
+else
+  bad "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null) is too old — the server needs 3.9+"
+  MISSING="$MISSING python"
+fi
 for c in curl jq; do
   if command -v "$c" >/dev/null 2>&1; then ok "$c"
   else warn "$c missing — the waybar badge needs it"; MISSING="$MISSING $c"; fi

@@ -112,9 +112,12 @@ def _last_usage(path):
     except OSError:
         return None
     for chunk in (300_000, 1_500_000, 6_000_000):
-        with path.open('rb') as fh:
-            fh.seek(max(0, size - chunk))
-            lines = fh.read().splitlines()
+        try:                                  # /clear or a closing session can remove it mid-read
+            with path.open('rb') as fh:
+                fh.seek(max(0, size - chunk))
+                lines = fh.read().splitlines()
+        except OSError:
+            return None
         for raw in reversed(lines):
             if b'"usage"' not in raw or b'"assistant"' not in raw:
                 continue
@@ -158,11 +161,18 @@ def _valid_pct(v):
 
 
 # ── breakdown (headless /context on a fork) ─────────────────────────────────
+def breakdown_enabled():
+    """USAGE_CONTEXT_BREAKDOWN=0 turns the background `claude` forks off entirely: each one
+    starts the user's full Claude Code setup (MCP servers, plugins). Totals still work."""
+    return os.environ.get('USAGE_CONTEXT_BREAKDOWN', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+
+
 def _claude_bin():
     """systemd user services get a minimal PATH without ~/.local/bin — where the native
     installer puts `claude`. USAGE_CLAUDE_BIN overrides."""
     for c in (os.environ.get('USAGE_CLAUDE_BIN'), shutil.which('claude'),
               str(Path.home() / '.local' / 'bin' / 'claude'),
+              str(Path.home() / '.local' / 'bin' / 'claude.exe'),     # Windows native installer
               str(CLAUDE_DIR / 'local' / 'claude')):
         if c and os.path.isfile(c) and os.access(c, os.X_OK):
             return c
@@ -181,7 +191,8 @@ def _run_context(sid, cwd):
         [exe, '-p', '--resume', sid, '--fork-session', '--no-session-persistence',
          '--settings', '{"disableAllHooks":true}', '--output-format', 'json', '/context'],
         cwd=cwd if cwd and os.path.isdir(cwd) else None, env=env,
-        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=FORK_TIMEOUT)
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=FORK_TIMEOUT,
+        encoding='utf-8', errors='replace')            # Windows would decode it as cp1252
     try:
         items = json.loads(r.stdout)
     except Exception:

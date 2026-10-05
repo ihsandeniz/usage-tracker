@@ -240,6 +240,32 @@ class EveryTextFileDeclaresItsEncoding(unittest.TestCase):
                          '\n  '.join(offenders))
 
 
+class JqFiltersParseOnOldJq(unittest.TestCase):
+    """jq 1.6 (Debian 11/12, Ubuntu 20.04/22.04) refuses keywords as `$names`; 1.7 accepts
+    them. `def limline(bar; $label; $th)` left the waybar badge at `○ —` on those distros
+    while CI — Ubuntu 24.04, jq 1.7 — stayed green. The source is checked, not the binary."""
+
+    KEYWORDS = ('label', '__loc__', 'if', 'then', 'elif', 'else', 'end', 'as', 'def',
+                'reduce', 'foreach', 'try', 'catch', 'import', 'include', 'and', 'or', 'not')
+
+    def test_no_keyword_is_used_as_a_jq_variable(self):
+        import re
+        kw = '|'.join(self.KEYWORDS)
+        # only jq-only syntax: `def f(...$x...)` parameters and `as $x` bindings
+        pats = (re.compile(r'\bdef\s+\w+\s*\([^)]*\$(' + kw + r')\b'),
+                re.compile(r'\bas\s+\$(' + kw + r')\b'))
+        files = sorted(REPO.glob('*.sh')) + sorted(REPO.glob('surface/*.sh')) \
+            + [REPO / 'surface' / 'usage-widget']
+        bad = []
+        for f in files:
+            if not f.exists():
+                continue
+            for n, line in enumerate(f.read_text(encoding='utf-8').splitlines(), 1):
+                if any(p.search(line) for p in pats):
+                    bad.append(f'{f.relative_to(REPO)}:{n}  {line.strip()}')
+        self.assertFalse(bad, 'jq 1.6 cannot parse these:\n  ' + '\n  '.join(bad))
+
+
 class NothingWritesIntoTheInstallation(unittest.TestCase):
     """B2 measured at the modules that actually write, not just at the path helper.
     A correct `platform.py` that nobody calls fixes nothing."""

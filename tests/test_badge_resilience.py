@@ -36,7 +36,7 @@ sys.path.insert(0, str(ROOT / 'packaging'))
 # so running these here would test a path that platform does not have. Checking for jq is
 # not enough: the GitHub Windows runner ships it, so the tests ran and failed on shell
 # differences instead of skipping. (ledger: test/isletim-sistemine-bagli-kurulum-testi-asilir)
-_NOT_LINUX_SURFACE = os.name == 'nt'
+_NOT_LINUX_SURFACE = os.name == 'nt' or not shutil.which('bash')   # Alpine ships no bash
 
 
 def _serving(payload: bytes):

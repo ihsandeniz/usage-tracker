@@ -23,7 +23,11 @@ echo
 
 # 1) Dependencies -----------------------------------------------------------
 if command -v python3 >/dev/null 2>&1; then
-  ok "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])')"
+  if python3 -c 'import sys;sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+    ok "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])')"
+  else
+    warn "python3 $(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])') is too old — the server needs Python 3.9+."
+  fi
 else
   warn "python3 not found — the server needs Python 3.9+ (stdlib only)."
 fi

@@ -134,10 +134,10 @@ out="$(echo "$json" | jq -c --arg pid "$PROVIDER" '
   # değil ALANI: bu şekli yayınlayan her sağlayıcı (Codex) aynı satırları alır.
   # ⚠️ `((x) // null) as $b` bilinçli: `x as $b` boş akımda gövdeyi SIFIR kez çalıştırır
   # ve tüm çıktıyı sessizce yutar (ledger: jq/empty-stream-as).
-  def limline(bar; $label; $th):
+  def limline(bar; $lbl; $th):
     ((bar) // null) as $b
     | if $b == null then ""
-      else "\n  " + cbar($b.pct; $th) + " " + $label + " " + cpct($b.pct; $th)
+      else "\n  " + cbar($b.pct; $th) + " " + $lbl + " " + cpct($b.pct; $th)
            + rst($b.resetInSec)
            + (if ($b.expired // false) then "  <span color=\"#8fb6d6\">↺ pencere sıfırlandı</span>" else "" end)
       end;

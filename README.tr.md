@@ -83,7 +83,10 @@ Elle kurmayı tercih edersen sihirbazı atla:
 ./start.sh            # → http://127.0.0.1:8770
 ```
 
-**Gereksinim:** Python 3.9+ (stdlib). waybar besleyicisi için `curl` + `jq`. Floating widget için
+**Gereksinim:** Python 3.9+ (stdlib). waybar besleyicisi için `bash`, `curl` + `jq` (1.6 ve üstü; bash yoksa `sh surface/waybar-usage.sh` busybox ile de çalışır).
+**macOS** denenmedi: panel ve harcama çalışmalı, ama Claude Code oturumunu orada Keychain'de
+tutar (`~/.claude/.credentials.json` yok) — canlı limit yalnız
+[durum satırı](surface/README.md#option-d--claude-code-status-line-as-the-live-limit-source-statuslinepy) yoluyla gelir. Floating widget için
 Chromium ailesi bir tarayıcı (opsiyonel), `hyprctl` (opsiyonel, Hyprland'de widget'ı otomatik
 float eder). `install.sh` eksikleri raporlar.
 
@@ -308,6 +311,15 @@ kalır: rastgele port + tek kullanımlık jeton + kendini kapatma. Kalıcı pane
 - Yalnızca **`127.0.0.1`** dinler — ağa asla açılmaz.
 - Yazan uçlar `Host` **ve** `Origin` doğrular: internetteki bir sayfa loopback'e istek
   atabilir, ama yabancı `Origin` ile yazamaz (403).
+- Yan etkili iki okuma — `/api/context` (`claude` başlatır) ve `/api/live?force=1` (Anthropic'e
+  gider) — başka siteden gelen isteği de reddeder (`Sec-Fetch-Site: cross-site|same-site` ya da
+  yabancı `Origin`); bir sayfa bunları kör `no-cors` isteğiyle tetikleyemez.
+- **Bağlam kartı arka planda `claude` çalıştırır:** oturum başı kategori kırılımı, Claude
+  Code'un kendi `/context`'i — her açık oturumun *çatalında* (`--fork-session
+  --no-session-persistence`, hook'lar kapalı) koşar. Kaynak transcript'e dokunmaz ama her koşu
+  tam Claude Code kurulumunu (MCP sunucuları, eklentiler) başlatır: oturum başına en fazla
+  2 dakikada bir, yalnız tam panel açık ve görünürken; yüzen widget hiç istemez. Kapatmak:
+  `USAGE_CONTEXT_BREAKDOWN=0` (toplamlar çalışmaya devam eder).
 - Verilerine **salt-okunur**. `~/.claude/.credentials.json`'daki OAuth token'ı yalnızca *okunur*, asla yazılmaz/yenilenmez (yazmak aktif oturumu düşürebilir).
 - Telemetri yok; zaten kullandığın sağlayıcı API'leri dışında dış çağrı yok.
 - Statik dosya servisi path-traversal korumalı.
