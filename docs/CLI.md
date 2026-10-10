@@ -365,6 +365,40 @@ usage-tracker setup --undo <step>      # revert it
 Keys are the exception to argv: `--do keys --set-key NAME` reads the value from **stdin**,
 because an argument is visible in `/proc` to every other user and lands in shell history.
 
+## `kanit` — anonymous limit evidence
+
+```bash
+usage-tracker kanit                 # 5-hour window, human text
+usage-tracker kanit --window 7d     # weekly window
+usage-tracker kanit --json          # format usage-tracker-limit-evidence/1
+usage-tracker kanit --no-codex      # leave out the experimental Codex part
+```
+
+How much local Claude Code work each 1% of the official limit bought, per continuous
+stretch (≥ 5 points, no reset), and which stretches fell to half the usual (`flagged`). The
+method, in one paragraph, is part of the output so a reader of a bug report has it too.
+Reads local files only; makes no request. (`--pencere` is accepted as an alias of `--window`.)
+
+| field (per stretch) | meaning |
+|---|---|
+| `start`, `end` | UTC, to the minute |
+| `points`, `minutes` | how much limit, over how long |
+| `units_per_pct` | weighted local units per 1% |
+| `baseline`, `ratio_to_baseline` | median of up to 30 earlier stretches, and this one against it (needs 3) |
+| `flagged_2x_faster` | `ratio_to_baseline` ≤ 0.5 |
+| `models` | share by family — Claude: `opus` `sonnet` `haiku` `fable`, everything else `other`; Codex (only when `status` is `ok`): `gpt-…` / `o…` / `codex…` names, everything else `other` |
+| `subagent_share`, `cache_read_share` | share of the units |
+| `client_version` | dominant Claude Code version, only if it looks like `1.2.3` |
+
+Nothing else is in it: no prompts, paths, project names, session ids, git branches or account
+ids. The output is built from that allow-list and scanned before printing (home directory,
+any absolute or `~/` path, Windows drive paths, UUIDs, e-mail addresses, account and API-key patterns, message ids, session keys, your
+user name). **If the scan finds anything, nothing is printed and the exit code is 1** — please
+report that as a bug. Exit code 0 otherwise, also when there is no measured stretch yet.
+
+Codex is `experimental`: `status` is `ok`, `noisy` (CV above 50% — no ratio, no flag) or
+`no-data`.
+
 ## `panel` — open it, starting the server if needed
 
 ```bash

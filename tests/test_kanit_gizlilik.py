@@ -164,13 +164,24 @@ class KanitGizlilikTest(_Ev):
         self.assertEqual(L._codex_aile('benim-sirket/gizli-vekil-modeli'), 'other')
 
 
+class BosVeriTest(unittest.TestCase):
+    def test_bos_veride_none_basilmaz(self):
+        with tempfile.TemporaryDirectory() as td:
+            k = L.kanit(seri_dosya=Path(td) / 'yok', masaustu=False, turns=[], codex=False)
+        metin = L.kanit_metni(k)
+        self.assertIn('no measured stretch yet', metin)
+        self.assertNotIn('None', metin)
+
+
 class SizintiBulTest(unittest.TestCase):
     def test_her_desen_yakalanir(self):
         with mock.patch('usage.limitseri._paths.home', return_value=Path('/home/ornek-kisi')), \
                 mock.patch('getpass.getuser', return_value='ornekkisi'):
             for metin, beklenen in (
                     ('x /home/ornek-kisi/a', 'home-dir'), ('/Users/a/b', 'unix-path'),
-                    ('C:\\\\Users\\\\a', 'windows-path'), (UUID, 'uuid'),
+                    ('/srv/veri/x', 'unix-path'), ('~/proje', 'home-path'),
+                    ('C:\\\\Users\\\\a', 'windows-path'), ('yol C:\\Users\\a', 'windows-path'),
+                    ('D:\\iş', 'windows-path'), (UUID, 'uuid'),
                     ('a.b@ornek.com', 'email'), ('{"org": 1}', 'org-key'),
                     ('org-abc12345', 'org-id'), ('sk-ant-0123456789abc', 'api-key'),
                     ('msg_0123456789', 'message-id'), ('{"cwd": "x"}', 'session-key'),
@@ -180,6 +191,8 @@ class SizintiBulTest(unittest.TestCase):
     def test_temiz_metin(self):
         with mock.patch('getpass.getuser', return_value='ornekkisi'):
             self.assertEqual(L.sizinti_bul('2026-03-23T09:00Z opus 92% units 2.1.197'), [])
+            # yöntem metnindeki "opus/fable", "units/1%" ve tarih yol sayılmaz
+            self.assertEqual(L.sizinti_bul('opus/fable 1 x (out*4) units/1% 2026-10-08T22:02Z'), [])
 
 
 class CliTest(_Ev):

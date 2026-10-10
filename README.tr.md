@@ -207,6 +207,56 @@ Güven önemli — her sayı kaynağıyla etiketli, sessizce hiçbir şey uyduru
 - **Abonelikteysen (Max, ChatGPT Plus…),** $ rakamı **API-eşdeğeri maliyettir** (bu kullanım pay-as-you-go olsa ne tutardı) = abonelikten çıkardığın değer. Gerçek faturan sabit ücrettir, bu rakam değil.
 - **Ayrıştırılamaz:** Opus fast-mode ve 1M-context premium fiyatı transcript'in model alanında görünmez → standart fiyattan hesaplanır (gerçek biraz daha yüksek olabilir).
 
+## Limitim nereye gitti? (Limit Kara Kutusu)
+
+Limit çubuğu *ne kadarının* gittiğini söyler. Bu 5 saatlik pencerenin olağandan hızlı mı
+eridiğini ya da onu neyin yediğini söyleyemez. usage-tracker bunu cevaplamak için gereken
+geçmişi tutar — yalnız senin makinendeki dosyalardan.
+
+**Ne kaydeder.** Resmî limit yüzdesi her değiştiğinde
+`~/.local/state/usage-tracker/limit-seri.jsonl` dosyasına tek satır eklenir (yüzde + sıfırlanma
+anı; 2 MB tavan, en yeni satırlar kalır). Sayılar Claude Code durum satırı kancasından
+(`surface/statusline.py`) ve panelin kendi canlı okumasından gelir — ek istek yapılmaz.
+Claude masaüstü uygulaması kuruluysa onun kendi yüzde geçmişi
+(`~/.config/Claude/plan-usage-history.json`, Windows'ta `%APPDATA%\Claude\…`) **okunur; asla
+kopyalanmaz ya da yazılmaz**: yalnız zaman ve iki yüzde alınır, hesap kimliği ayrıştırırken
+atılır. O dosyanın biçimi resmî değildir; değişirse geçmiş tahmin edilmez, "okunamadı" denir.
+
+**Neyi ölçer.** Limitin her kesintisiz parçası için (en az 5 puan, arada sıfırlanma yok),
+o parçada yapılan yerel Claude Code işi, harcanan puana bölünür: *%1 başına birim*. Birim,
+tahminin kullandığı ağırlıklarla aynıdır (opus/fable 1 · sonnet 0,25 · haiku 0,05 ×
+`çıktı×4 + girdi + önbellek_yazma + önbellek_okuma×0,1`). Olağan değer, son 30 parçanın
+medyanıdır. **Olağanın yarısı ya da altı** — her %1 yarı iş taşıdı — **2× hızlı** diye
+işaretlenir.
+
+**Nerede görürsün.**
+
+- Panel: limit çubuklarının altındaki **Limiti ne yedi** kutusu — bu pencerede %1 başına birim,
+  olağana göre durumu, model dağılımı (limit puanı olarak), alt ajan ve önbellek okuma payı,
+  kaç oturumun çalıştığı. Oturum kimliği hiç gösterilmez.
+- `GET /api/limit-kutu` — aynı sayılar JSON olarak (salt-okuma, ağ yok, 60 sn önbellek).
+- `usage-tracker kanit` — bir hata bildirimine yapıştırılabilecek isimsiz kanıt (İngilizce;
+  `--window 7d` haftalık, `--json` makine için, `--no-codex` Codex'siz).
+
+Kanıt yalnız UTC saati (dakika), oranları, model ailesini (Claude: `opus`, `sonnet`, `haiku`,
+`fable`, gerisi `other`; Codex: `gpt-…`/`o…`/`codex…` adları, gerisi `other`) ve Claude Code
+sürümünü taşır — **istem, yol, proje adı, oturum kimliği, git
+dalı ya da hesap kimliği yok**. Beyaz listeden kurulur ve basılmadan önce taranır; kişisel
+görünen bir şey (ev dizini yolu, kimlik, e-posta) bulunursa hiçbir şey basılmaz, çıkış kodu 1.
+
+**Codex deneysel.** Aynı oran Codex'in kendi rollout kayıtlarından hesaplanır, ama geliştirildiği
+makinede anlam taşımayacak kadar oynak (5 saatte CV %153, haftalıkta %62). %50'nin üstünde
+kanıt `noisy` der, oran ve bayrak vermez.
+
+**Dikkatle oku.**
+
+- Bu makinenin görmediği kullanım — claude.ai sohbeti, başka bir bilgisayar — yüzdeyi artırır
+  ama birim eklemez; pencere *hızlı görünür*. Panel bunu kutunun altında yazar.
+- Limit yüzdesi tam sayıdır; 5 puandan kısa parçalar bu yüzden atlanır.
+- Ağırlıklar tahmin için ayarlanmış bir yaklaşımdır, Anthropic'in formülü değil. Geliştiricinin
+  makinesinde oran kullanılacak kadar kararlı çıktı (14 parça, CV %17; haftalık CV %2); seninki
+  farklı olabilir. `python3 -m usage.limitseri sinav` aynı sınavı senin geçmişinle koşar.
+
 ## Yüzey — iki bağımsız seçenek
 
 `surface/` altındaki her şey **izoledir** (mevcut `~/.config`'e asla dokunmaz) ve iki yüzey
@@ -267,6 +317,7 @@ python3 server.py guard        # çıkış kodu: 0 iyi · 1 uyarı · 2 kritik �
 python3 server.py watch        # eşik geçişinde bir kez tetikler (--exec / --notify)
 python3 server.py doctor       # log istemeden kurulum teşhisi
 python3 server.py config       # hangi kartlar görünür + eşik/yenileme
+python3 server.py kanit        # isimsiz limit kanıtı: %1 başına birim, 2× hızlı pencereler
 ```
 
 Eşiği tek yerden taşırsın, **dört yüzey birden** uyar — çünkü çift wire'ın içinde gezer:
@@ -323,6 +374,8 @@ kalır: rastgele port + tek kullanımlık jeton + kendini kapatma. Kalıcı pane
 - Verilerine **salt-okunur**. `~/.claude/.credentials.json`'daki OAuth token'ı yalnızca *okunur*, asla yazılmaz/yenilenmez (yazmak aktif oturumu düşürebilir).
 - Telemetri yok; zaten kullandığın sağlayıcı API'leri dışında dış çağrı yok.
 - Statik dosya servisi path-traversal korumalı.
+- Claude masaüstü uygulamasının yüzde geçmişi okunur, asla yazılmaz ya da kopyalanmaz; hesap
+  kimliği ayrıştırırken atılır. `usage-tracker kanit` çıktısı kişisel görünürse hiçbir şey basmaz.
 
 ## Lisans
 

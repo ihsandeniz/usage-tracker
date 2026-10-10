@@ -259,6 +259,69 @@ Trust matters, so every number is labelled by source — nothing is silently mad
 - **If you're on a subscription (Max, ChatGPT Plus…),** the $ figure is the **API-equivalent cost** (what this usage would cost pay-as-you-go) = the value you're getting from the subscription. Your actual bill is the flat fee, not this number.
 - **Can't be separated:** Opus fast-mode and 1M-context premium pricing don't appear in the transcript's model field, so they're computed at standard rates (real cost may be slightly higher).
 
+## Where did my limit go? (Limit Black Box)
+
+The limit bar says *how much* is gone. It cannot say whether this 5-hour window is burning
+faster than your usual one, or what ate it. usage-tracker keeps the history needed to answer
+that, from files on your machine only.
+
+**What it records.** Every time the official limit percentage changes, one line is appended
+to `~/.local/state/usage-tracker/limit-seri.jsonl` (percentage + reset time; capped at 2 MB,
+newest lines kept). The numbers come from the Claude Code status line hook
+(`surface/statusline.py`) and from the panel's own live read — no extra request is made. If
+the Claude desktop app is installed, its own percentage history
+(`~/.config/Claude/plan-usage-history.json`, `%APPDATA%\Claude\…` on Windows) is **read, never
+copied or written**: only the time and the two percentages are taken, the account id is
+dropped while parsing. That file's format is not official; if it changes, the history is
+reported as unreadable instead of guessed.
+
+**What it measures.** For each continuous stretch of the limit (at least 5 points, no reset
+in between), the local Claude Code work done in it is divided by the points it cost:
+*units per 1%*. Units are the same weights the estimate uses (opus/fable 1 · sonnet 0.25 ·
+haiku 0.05 × `out×4 + in + cache_write + cache_read×0.1`). The usual value is the median of
+your last 30 stretches. A stretch at **half the usual or less** — each 1% bought half the
+work — is flagged **2× faster**.
+
+**Where you see it.**
+
+- Panel: the **What used the limit** box under the limit bars — this window's units per 1%,
+  how that compares with your usual, the model split (in points of the limit), the share of
+  subagents and of cache reads, and how many sessions ran. Session ids are never shown.
+- `GET /api/limit-kutu` — the same numbers as JSON (read-only, no network, cached 60 s).
+- `usage-tracker kanit` — anonymous evidence you can paste into a bug report:
+
+```
+$ usage-tracker kanit
+usage-tracker 0.5.4 · limit evidence · window 5h
+Claude: 14 measured stretches (2026-09-22T19:36Z → 2026-10-08T22:02Z), median 497868 units per 1%, CV 17%, flagged 2x-faster: 0
+
+start (UTC)        min  points  units/1%   x usual  flag  models  client
+2026-09-29T09:53Z   265       8     587007    1.264        opus 99% sonnet 1%  2.1.284
+…
+Codex (experimental): noisy — 316 stretches, CV 153% > 50%; no ratio or flag reported.
+```
+
+`--window 7d` for the weekly limit, `--json` for machines, `--no-codex` to leave Codex out.
+The evidence carries UTC times (to the minute), ratios, model family (Claude: `opus`,
+`sonnet`, `haiku`, `fable`, anything else `other`; Codex: `gpt-…`/`o…`/`codex…` names, anything
+else `other`) and the Claude Code version — **no prompts,
+paths, project names, session ids, git branches or account ids**. It is built from an
+allow-list and scanned before printing; if the scan finds anything that looks personal
+(a home path, an id, an e-mail) nothing is printed and the command exits 1.
+
+**Codex is experimental.** The same ratio is computed from Codex's own rollout logs, but on
+the machine this was built on it swings too much to mean anything (CV 153% over 5 h, 62%
+weekly). Above 50% the evidence says `noisy` and gives no ratio or flag.
+
+**Read it with care.**
+
+- Usage this machine never sees — claude.ai chats, another computer — raises the percentage
+  without adding units, so it *looks* faster. The panel says so under the box.
+- The limit percentage is a whole number; that is why stretches under 5 points are skipped.
+- The weights are a heuristic tuned for the estimate, not Anthropic's formula. On the
+  author's machine the ratio was stable enough to use (14 stretches, CV 17%; weekly CV 2%);
+  yours may differ. `python3 -m usage.limitseri sinav` runs the same check on your history.
+
 ## The surface — two independent options
 
 Everything under `surface/` is **isolated** (it never touches your existing `~/.config/waybar` or
@@ -317,6 +380,7 @@ python3 server.py guard        # exit 0 ok · 1 warn · 2 critical · 3 unknown
 python3 server.py watch        # fire once per threshold crossing (--exec / --notify)
 python3 server.py doctor       # diagnose an installation without asking for logs
 python3 server.py config       # visible cards, thresholds, refresh interval
+python3 server.py kanit        # anonymous limit evidence: units per 1%, 2x-faster windows
 ```
 
 One place moves the alert line for **all four surfaces**, because the pair travels in the wire:
@@ -346,6 +410,7 @@ the exact paths on your machine.
 | view config, settings | `~/.config/usage-tracker/` | `%APPDATA%\usage-tracker\` |
 | calibration, live cache | `~/.local/state/usage-tracker/` | `%LOCALAPPDATA%\usage-tracker\State\` |
 | fetched price catalogue | `~/.cache/usage-tracker/` | `%LOCALAPPDATA%\usage-tracker\Cache\` |
+| limit % history (`limit-seri.jsonl`, ≤ 2 MB) | `~/.local/state/usage-tracker/` | `%LOCALAPPDATA%\usage-tracker\State\` |
 
 `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME` are honoured. Upgrading from an
 older version keeps working: a `usage_calib.json` or `view_config.json` sitting next to the
@@ -389,6 +454,7 @@ Provider adapters live in `usage/providers/`. Each module exposes `collect(days)
 | `GET /api/live[?force=1]` | Raw Anthropic live usage (verification) |
 | `GET /api/providers` | Multi-provider cards |
 | `GET /api/context[?breakdown=0]` | Context-window fill of every open Claude Code session |
+| `GET /api/limit-kutu` | Limit Black Box: this window's units per 1%, usual, 2×-faster flag, model / subagent / cache-read shares (no session ids) |
 | `GET /v1/usage` | Stable wire-format (`schema: usage/v1`) — used by the waybar feeder |
 | `GET /api/settings` | Thresholds, refresh, display currency + key **names** and set/unset |
 | `POST /api/settings` | Change them (validated; keys are refused by design) |
@@ -418,6 +484,8 @@ your scripts. The fields, the compatibility rules and what changed when are in
   (calls Anthropic) — also refuse other sites (`Sec-Fetch-Site: cross-site|same-site`, or a
   foreign `Origin`), so a page cannot trigger them with a blind `no-cors` request.
 - No endpoint ever returns an API key's value, and none writes one.
+- The Claude desktop app's percentage history is read, never written or copied; its account id
+  is dropped while parsing. `usage-tracker kanit` refuses to print if its output looks personal.
 
 ## Development
 

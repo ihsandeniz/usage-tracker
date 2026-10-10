@@ -18,3 +18,6 @@ CLAUDE-ek.md
 build/
 dist/
 *.spec.bak
+
+# python -m build artığı (pyproject.toml taslağı, FAZ 6)
+*.egg-info/

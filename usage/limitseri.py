@@ -696,8 +696,11 @@ def sizinti_bul(metin) -> list:
     if ev and len(ev) > 1 and ev in metin:
         bulgu.append('home-dir')
     for ad, desen in (
-            ('unix-path', r'(?<![\w.])/(home|Users|root|mnt|tmp|var|opt)/'),
-            ('windows-path', r'[A-Za-z]:\\\\'),
+            # Her mutlak yol (iki bölüm yeter): yalnız bilinen kökler /srv/… gibi yolları kaçırıyordu.
+            ('unix-path', r'(?<![\w.:/~])/[\w.-]+/[\w.-]+'),
+            ('home-path', r'~/[\w.-]+'),
+            # Düz metinde tek, JSON'da çift ters bölü (celisci: tek ters bölü kaçıyordu).
+            ('windows-path', r'\b[A-Za-z]:\\{1,2}[\w.$ -]'),
             ('uuid', r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'),
             ('email', r'[\w.+-]+@[\w-]+\.[\w.]+'),
             ('org-key', r'"org(_?id|anization)?"\s*:'),
@@ -720,10 +723,16 @@ def kanit_metni(k) -> str:
     """İnsan okunur (İngilizce — bir GitHub başlığına yapıştırılır) özet."""
     c = k['claude']['summary']
     cv = f"{c['cv'] * 100:.0f}%" if c['cv'] is not None else '—'
-    s = [f"{k['tool']} · limit evidence · window {k['window']}",
-         f"Claude: {c['measured']} measured stretches ({c['first']} → {c['last']}), "
-         f"median {c['median_units_per_pct']} units per 1%, CV {cv}, flagged 2x-faster: {c['flagged']}",
-         '', 'start (UTC)        min  points  units/1%   x usual  flag  models  client']
+    s = [f"{k['tool']} · limit evidence · window {k['window']}"]
+    if not c['measured']:
+        # Boş veride "None → None, median None" basılıyordu (FAZ 6, temiz kurulumda ölçüldü).
+        s.append(f"Claude: no measured stretch yet — needs a reset-free stretch of >= {ASGARI_PUAN} "
+                 'points with local Claude Code activity.')
+    else:
+        s += [f"Claude: {c['measured']} measured stretches ({c['first']} → {c['last']}), "
+              f"median {c['median_units_per_pct']} units per 1%, CV {cv}, "
+              f"flagged 2x-faster: {c['flagged']}",
+              '', 'start (UTC)        min  points  units/1%   x usual  flag  models  client']
     for a in k['claude']['intervals']:
         m = ' '.join(f'{n} {v:.0%}' for n, v in a['models'].items())
         s.append(f"{a['start']}  {a['minutes']:4d}  {a['points']:6.0f}  {a['units_per_pct']:9d}  "

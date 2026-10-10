@@ -1,0 +1,52 @@
+# DRAFT — not published. Nothing here has been uploaded to PyPI.
+#
+# `python3 -m build` produces an sdist and a wheel from this file. The wheel installs the
+# command line (`usage-tracker kanit`, `usage`, `guard`, …) but NOT the panel's web assets:
+# `usage/platform.py:resource_dir()` looks for `web/`, `data/` and `price_overrides.json`
+# next to the `usage/` package, which inside a wheel is site-packages itself. Shipping them
+# there would put generic top-level names (`web`, `data`) into everyone's site-packages.
+# Before a PyPI release the read-only resources move under the package (e.g. `usage/_res/`)
+# and `resource_dir()` learns that location. Until then the release binaries (CI) and the
+# AUR package (packaging/aur/PKGBUILD) are the supported installs.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usage-tracker"
+dynamic = ["version"]
+description = "Claude / AI usage, limits and real spend on your desktop — stdlib only, local files, no account."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+authors = [{ name = "ihsandeniz" }]
+keywords = ["claude", "claude-code", "usage", "rate-limit", "codex", "waybar"]
+classifiers = [
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Utilities",
+]
+dependencies = []    # stdlib only — a promise, see README "Development"
+
+[project.optional-dependencies]
+tray = ["PyQt5"]     # surface/usage-tray.py; the panel and CLI never need it
+
+[project.urls]
+Homepage = "https://github.com/ihsandeniz/usage-tracker"
+Issues = "https://github.com/ihsandeniz/usage-tracker/issues"
+
+[project.scripts]
+usage-tracker = "server:main"
+
+[tool.setuptools]
+py-modules = ["server"]
+packages = ["usage", "usage.providers"]
+
+[tool.setuptools.dynamic]
+# One version, in server.py — CI checks the git tag against it. Read statically, not imported.
+version = { attr = "server.VERSION" }

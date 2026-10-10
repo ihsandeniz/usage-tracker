@@ -1,0 +1,61 @@
+# Maintainer: TODO — the AUR account owner (name <email>), decided at publish time
+# DRAFT — not on the AUR. Nothing here has been uploaded, tagged or signed.
+#
+# Before publishing:
+#   1. tag v$pkgver on GitHub (VERSION lives in server.py; CI checks the tag against it)
+#   2. `updpkgsums` — replaces SKIP with the tarball's real sha256
+#   3. `makepkg --printsrcinfo > .SRCINFO`, `namcap PKGBUILD *.pkg.tar.zst`
+#   4. push to ssh://aur@aur.archlinux.org/usage-tracker.git (needs an AUR account + SSH key)
+#
+# Layout: the repo tree goes to /usr/lib/usage-tracker unchanged. The code already expects a
+# read-only install dir (`usage/platform.py:resource_dir()` reads web/, data/ and
+# price_overrides.json next to `usage/`); everything the user owns goes to
+# ~/.local/state, ~/.config and ~/.cache. So no patching is needed here — unlike the wheel
+# (see pyproject.toml).
+
+pkgname=usage-tracker
+pkgver=0.6.0
+pkgrel=1
+pkgdesc='Claude / AI usage, limits and real spend on your desktop — panel, waybar badge, CLI (stdlib only)'
+arch=('any')
+url='https://github.com/ihsandeniz/usage-tracker'
+license=('MIT')
+depends=('python>=3.9')
+optdepends=(
+  'curl: waybar badge feeder (surface/waybar-usage.sh)'
+  'jq: waybar badge feeder (surface/waybar-usage.sh)'
+  'chromium: floating widget (any Chromium-family browser works)'
+  'python-pyqt5: system tray icon (surface/usage-tray.py)'
+  'libnotify: desktop notifications for `usage-tracker watch --notify`'
+)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  local lib="$pkgdir/usr/lib/$pkgname"
+
+  install -d "$lib"
+  cp -r --no-preserve=ownership usage web data surface "$lib/"
+  install -Dm644 server.py price_overrides.json -t "$lib/"
+  install -Dm755 setup.sh -t "$lib/"
+  install -d "$lib/packaging"
+  install -Dm644 packaging/*.py packaging/env.example packaging/usage-tracker.service.in \
+    -t "$lib/packaging/"
+  find "$lib" -name '__pycache__' -prune -exec rm -rf {} +
+  rm -f "$lib/surface/surface.conf"
+
+  # One command for every surface: `usage-tracker`, `usage-tracker kanit`, `… guard`, …
+  install -d "$pkgdir/usr/bin"
+  printf '#!/bin/sh\nexec /usr/bin/python3 /usr/lib/%s/server.py "$@"\n' "$pkgname" \
+    > "$pkgdir/usr/bin/$pkgname"
+  chmod 755 "$pkgdir/usr/bin/$pkgname"
+
+  # systemd --user unit (opt-in: `systemctl --user enable --now usage-tracker`)
+  sed -e "s|@@ROOT@@|/usr/lib/$pkgname|g" -e "s|@@PYTHON@@|/usr/bin/python3|g" \
+    packaging/usage-tracker.service.in > usage-tracker.service
+  install -Dm644 usage-tracker.service -t "$pkgdir/usr/lib/systemd/user/"
+
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+  install -Dm644 README.md README.tr.md -t "$pkgdir/usr/share/doc/$pkgname/"
+}
