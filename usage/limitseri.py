@@ -472,6 +472,89 @@ def sinav(seri_dosya=None, masaustu=None, asgari_puan=ASGARI_PUAN, turns=None,
     return out
 
 
+# ── FAZ 4: panel kartı (/api/limit-kutu) ───────────────────────────────────────────
+
+KUTU_TTL = 60.0            # sn — tarama motor önbelleğinden gelir ama medyan tüm geçmişten
+KUTU_EN_COK_OTURUM = 5
+_kutu_onbellek = {'t': 0.0, 'v': None}
+_kutu_kilit = __import__('threading').Lock()
+
+
+def kutu(now=None, seri_dosya=None, masaustu=None, turns=None) -> dict:
+    """Panel kartı: "son 5 saatte limitin %'sini ne yedi" + oran + temel + bayrak.
+
+    Yan etkisiz, ağsız: yalnız seri dosyası, masaüstü geçmişi (salt-okuma) ve transcript'ler.
+    Oturum kimliği taşımaz — oturumlar yalnız pay olarak, büyükten küçüğe.
+
+    durum: 'gozlem-yok' (hiç yüzde geçmişi yok) · 'bayat' (son gözlem bu pencereden değil) ·
+           'kisa' (bu pencerede < ASGARI_PUAN puanlık kesintisiz aralık, oran yok) · 'tamam'
+    """
+    import statistics
+    import time as _time
+    from . import engine
+    now = float(now if now is not None else _time.time())
+    pen = 'five_hour'
+    uzun = PENCERE_SN[pen]
+    g = gozlemler(pen, seri_dosya, masaustu)
+    out = {'pencere': pen, 'durum': 'gozlem-yok', 'son': None, 'pencereBasi': None,
+           'dokum': None, 'oran': None, 'temel': None, 'kat': None, 'bayrak': False,
+           'esik': HIZLI_ESIK, 'olculen': 0, 'cv': None, 'sonBayrak': None,
+           'asgariPuan': ASGARI_PUAN}
+    if not g:
+        return out
+    son = g[-1]
+    out['son'] = {'p': son['p'], 'yasSn': max(0, round(now - son['t'])), 'kaynak': son['k']}
+    if turns is None:
+        turns = engine._scan_turns(int((g[0]['t'] - 6 * 3600) * 1000))
+    ar = olc(g, turns, pen)
+    oz = ozet(ar)
+    out['olculen'], out['cv'] = oz['olculen'], oz['cv']
+    v = [a['oran'] for a in ar if a['oran']]
+    if v:
+        out['temel'] = round(statistics.median(v[-TEMEL_KAYAN:]), 1)
+    bay = [a for a in ar if a['bayrak']]
+    if bay:
+        out['sonBayrak'] = {'yasSn': max(0, round(now - bay[-1]['t1'])), 'kat': bay[-1]['kat']}
+
+    # Bu pencere: sıfırlanma anı biliniyorsa ondan geriye 5 saat; bilinmiyorsa son 5 saat.
+    guncel = (son['r'] is not None and son['r'] > now) or \
+             (son['r'] is None and now - son['t'] <= AZAMI_BOSLUK_SN)
+    if not guncel:
+        out['durum'] = 'bayat'
+        return out
+    bas = son['r'] - uzun if son['r'] is not None else now - uzun
+    out['pencereBasi'] = round(bas)
+    ms0, ms1 = bas * 1000, now * 1000
+    d = aralik_dokumu([x for x in turns if ms0 < x.ms <= ms1])
+    oturumlar = list(d.pop('oturum').values())
+    d['oturumSayisi'] = len(oturumlar)
+    d['oturumlar'] = oturumlar[:KUTU_EN_COK_OTURUM]
+    out['dokum'] = d
+    # Bu pencerenin oranı = son ölçülen aralık, eğer bu pencerenin içinde ve son gözlemde bitiyorsa.
+    a = ar[-1] if ar else None
+    if a and a['t1'] == son['t'] and a['t0'] >= bas - AYNI_PENCERE_SN and a['oran']:
+        out.update(durum='tamam', oran=a['oran'], kat=a['kat'], bayrak=a['bayrak'])
+        if a['temel'] is not None:
+            out['temel'] = a['temel']
+    else:
+        out['durum'] = 'kisa'
+    return out
+
+
+def kutu_onbellekli(**kw) -> dict:
+    """kutu() + KUTU_TTL'lik tek uçuş önbelleği (panel her yenilemede çağırır)."""
+    import time as _time
+    with _kutu_kilit:
+        if _kutu_onbellek['v'] is not None and _time.time() - _kutu_onbellek['t'] < KUTU_TTL:
+            return _kutu_onbellek['v']
+        try:
+            v = kutu(**kw)
+        except Exception as e:                      # kart düşer, panel düşmez
+            v = {'pencere': 'five_hour', 'durum': 'hata', 'hata': type(e).__name__}
+        _kutu_onbellek.update(t=_time.time(), v=v)
+        return v
+
+
 def _saat(t):
     return datetime.fromtimestamp(t, tz=timezone.utc).strftime('%m-%d %H:%M')
 

@@ -48,7 +48,19 @@ const I18N = {
     ctxDeferred: 'loaded on demand, not counted', ctxJustNow: 'just now', ctxAge: 'breakdown measured',
     ctxNote: 'Every open Claude Code session. The total is live from the last reply; the breakdown '
       + 'is measured with /context on a fork of the session (the session itself is never written). '
-      + 'Dashed line = auto-compact point.'
+      + 'Dashed line = auto-compact point.',
+    lkTitle: 'What used the limit', lkSub: 'this 5-hour window', lkPer: '1% ≈ {u} units',
+    lkBase: 'usual {u}', lkFast: '⚑ 2× faster', lkNormal: 'normal pace', lkShort: 'measuring',
+    lkStale: 'no current reading', lkNone: 'no history', lkErr: 'unavailable',
+    lkSide: 'subagents', lkCache: 'cache reads', lkSess: 'sessions', lkTop: 'largest', lkPts: 'pts',
+    lkNoneMsg: 'No limit-percentage history yet. It fills in as Claude Code reports usage.',
+    lkStaleMsg: 'Last percentage reading was {a} ago, so this window cannot be judged.',
+    lkShortMsg: 'The window has moved {p} pts; the per-1% ratio needs at least {n}.',
+    lkBaseMsg: 'Usual: 1% ≈ {u} units · {n} windows · spread {cv}',
+    lkFastMsg: 'Each 1% bought {k} of the usual work — the limit is draining faster than usual.',
+    lkLastFlag: 'Last fast window was {a} ago.',
+    lkNote: 'Counts this machine\'s Claude Code transcripts only. claude.ai chats or another '
+      + 'computer raise the percentage without a record here, which can look “fast”.'
   },
   tr: {
     spend: 'Gerçek Harcama', limits: 'Claude Limitleri', calibration: 'Kalibrasyon (yedek)', view: 'Görünüm',
@@ -91,7 +103,19 @@ const I18N = {
     ctxMemFiles: 'Hafıza dosyaları', ctxSkills: 'Skill\'ler', ctxAgents: 'Ajanlar', ctxMcp: 'MCP araçları',
     ctxDeferred: 'gerektiğinde yüklenir, sayılmaz', ctxJustNow: 'az önce', ctxAge: 'kırılım ölçümü',
     ctxNote: 'Her açık Claude Code oturumu. Toplam son yanıttan anlık; kırılım oturumun bir kopyasında '
-      + '/context ile ölçülür (kaynak oturuma yazılmaz). Kesikli çizgi = otomatik sıkıştırma eşiği.'
+      + '/context ile ölçülür (kaynak oturuma yazılmaz). Kesikli çizgi = otomatik sıkıştırma eşiği.',
+    lkTitle: 'Limiti ne yedi', lkSub: 'bu 5 saatlik pencere', lkPer: '%1 ≈ {u} birim',
+    lkBase: 'olağan {u}', lkFast: '⚑ 2× hızlı', lkNormal: 'olağan hız', lkShort: 'ölçülüyor',
+    lkStale: 'güncel ölçüm yok', lkNone: 'geçmiş yok', lkErr: 'alınamadı',
+    lkSide: 'alt ajan', lkCache: 'önbellek okuma', lkSess: 'oturum', lkTop: 'en büyüğü', lkPts: 'puan',
+    lkNoneMsg: 'Henüz limit yüzdesi geçmişi yok. Claude Code kullanımı bildirdikçe dolar.',
+    lkStaleMsg: 'Son yüzde ölçümü {a} önceydi; bu pencere değerlendirilemiyor.',
+    lkShortMsg: 'Pencere {p} puan ilerledi; %1 oranı için en az {n} puan gerekir.',
+    lkBaseMsg: 'Olağan: %1 ≈ {u} birim · {n} pencere · oynaklık {cv}',
+    lkFastMsg: 'Her %1, olağan işin yalnız {k} kadarını taşıdı — limit olağandan hızlı eriyor.',
+    lkLastFlag: 'Son hızlı pencere {a} önceydi.',
+    lkNote: 'Yalnız bu makinedeki Claude Code kayıtları sayılır. claude.ai sohbeti ya da başka '
+      + 'bir bilgisayar yüzdeyi artırır ama burada kaydı yoktur; bu da “hızlı” görünebilir.'
   }
 };
 
@@ -651,6 +675,68 @@ function renderContext(d) {
   }));
 }
 
+// ── LİMİT KARA KUTUSU (/api/limit-kutu) ──────────────────────
+// Oran = bu pencerede %1'e düşen ağırlıklı birim. Olağanın yarısı ya da altı → "2× hızlı".
+// Oturum kimliği uçtan hiç gelmez; oturumlar yalnız pay olarak sayılır.
+const LK_COLORS = { opus: 'var(--gold)', fable: 'var(--gold)', sonnet: 'var(--cyan)', haiku: 'var(--green)' };
+function lkFill(key, vars) {
+  return Object.entries(vars).reduce((a, [k, v]) => a.replace('{' + k + '}', v), t(key));
+}
+// Türkçede yüzde işareti önde (%44), İngilizcede arkada (44%) — kutu içinde tek biçim (goz).
+function lkPct(x) { const n = Math.round((x || 0) * 100); return LANG === 'tr' ? '%' + n : n + '%'; }
+// Lejant payları toplamı 100 olsun: en büyük kalan yöntemi (92+8+1=101 görünüyordu, goz).
+function lkRound(xs) {
+  const raw = xs.map(x => (x || 0) * 100), fl = raw.map(Math.floor);
+  let rest = 100 - fl.reduce((a, b) => a + b, 0);
+  raw.map((r, i) => [r - fl[i], i]).sort((a, b) => b[0] - a[0]).forEach(([, i]) => { if (rest > 0) { fl[i]++; rest--; } });
+  return fl;
+}
+function renderLimitKutu(d) {
+  const el = $('limit-kutu');
+  if (!el) return;
+  if (!d || !d.durum) { el.innerHTML = ''; return; }
+  const st = d.durum;
+  const pill = st === 'tamam' ? (d.bayrak ? ['bad', t('lkFast')] : ['good', t('lkNormal')])
+    : st === 'kisa' ? ['', t('lkShort')] : st === 'bayat' ? ['warn', t('lkStale')]
+    : st === 'hata' ? ['warn', t('lkErr')] : ['', t('lkNone')];
+  const age = (sec) => sec < 60 ? t('ctxJustNow') : countdown(sec);
+  let ratio = '';
+  if (st === 'tamam') {
+    // Çarpan ayrıca basılmaz: "0.44×" ile "2× hızlı" yan yana ters yönü gösteriyordu (goz).
+    ratio = `<div class="lk-ratio"><span>${lkFill('lkPer', { u: fmtTok(d.oran) })}</span>`
+      + (d.temel ? `<span class="muted">${lkFill('lkBase', { u: fmtTok(d.temel) })}</span>` : '') + '</div>';
+  }
+  const dk = d.dokum;
+  let body = '';
+  if (dk && dk.turn) {
+    const models = Object.entries(dk.model || {});
+    const pts = d.son && (st === 'tamam' || st === 'kisa') ? d.son.p : null;
+    const segs = models.map(([m, x]) => `<i style="width:${(x * 100).toFixed(2)}%;background:${LK_COLORS[m] || 'var(--muted)'}" title="${esc(m)} ${lkPct(x)}"></i>`).join('');
+    const yuz = lkRound(models.map(([, x]) => x));
+    const legend = models.map(([m, x], i) => `<li><span><i style="background:${LK_COLORS[m] || 'var(--muted)'}"></i>${esc(m)}</span><span>${yuz[i] === 0 && x > 0 ? (LANG === 'tr' ? '&lt;%1' : '&lt;1%') : lkPct(yuz[i] / 100)}</span>`
+      + `<span class="muted">${pts != null ? '≈ ' + roundHalfUp(x * pts, 1).toLocaleString(LANG === 'tr' ? 'tr-TR' : 'en-US') + ' ' + t('lkPts') : ''}</span></li>`).join('');
+    const top = dk.oturumlar && dk.oturumlar.length ? ` (${t('lkTop')} ${lkPct(dk.oturumlar[0])})` : '';
+    body = `<div class="lk-track">${segs}</div><ul class="lk-legend">${legend}</ul>
+      <div class="lbar-sub lk-sub"><span>${t('lkSide')} ${lkPct(dk.alt_ajan)} · ${t('lkCache')} ${lkPct(dk.onbellek_okuma)}</span>
+        <span>${dk.oturumSayisi} ${t('lkSess')}${top}</span></div>`;
+  }
+  const msgs = [];
+  if (st === 'gozlem-yok') msgs.push(t('lkNoneMsg'));
+  if (st === 'bayat' && d.son) msgs.push(lkFill('lkStaleMsg', { a: age(d.son.yasSn) }));
+  if (st === 'kisa' && d.son) msgs.push(lkFill('lkShortMsg', { p: roundHalfUp(d.son.p, 1), n: d.asgariPuan }));
+  if (st === 'tamam' && d.bayrak && d.kat != null) msgs.push(lkFill('lkFastMsg', { k: lkPct(d.kat) }));
+  if (d.temel && d.olculen) msgs.push(lkFill('lkBaseMsg', { u: fmtTok(d.temel), n: d.olculen,
+    cv: d.cv != null ? lkPct(d.cv) : '—' }));
+  if (d.sonBayrak && !d.bayrak) msgs.push(lkFill('lkLastFlag', { a: age(d.sonBayrak.yasSn) }));
+  el.innerHTML = `<div class="lk${d.bayrak ? ' lk-alarm' : ''}">
+    <div class="lbar-head"><span class="lbar-name">${t('lkTitle')} <small>${t('lkSub')}</small></span>
+      <span class="pill ${pill[0]}">${esc(pill[1])}</span></div>
+    ${ratio}${body}
+    ${msgs.map(m => `<p class="lk-msg">${esc(m)}</p>`).join('')}
+    ${st === 'gozlem-yok' || st === 'hata' ? '' : `<p class="note lk-note">${t('lkNote')}</p>`}
+  </div>`;
+}
+
 // ── döngü ────────────────────────────────────────────────
 // Widget mode (floating app window): ?w=1 → compact, chromeless layout.
 // Glance mode (floating glance window): ?w=2 → ultra-compact, single-metric display.
@@ -675,6 +761,8 @@ async function refresh() {
       // görünmeyen sekmede istenmez (yalnız toplamlar gelir).
       const bd = wParam || document.hidden ? 0 : 1;
       getJSON(`/api/context?breakdown=${bd}`).then(renderContext).catch(e => console.error('context failed:', e));
+      // Kara kutu da ayrı: ilk çağrı tüm geçmişi tarar, limit çubuklarını bekletmesin.
+      getJSON('/api/limit-kutu').then(renderLimitKutu).catch(e => console.error('limit-kutu failed:', e));
     }
   } catch (e) {
     $('updated').textContent = 'hata: ' + e.message;

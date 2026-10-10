@@ -8,6 +8,7 @@ Port 8770 · 127.0.0.1 bind · stdlib-only · sıfır bağımlılık · build'si
   GET  /api/spend[?days] → gerçek $ harcama (Today/Yesterday/30g + per-model + per-day)
   GET  /v1/usage         → interop wire-format (overlay/waybar/eww için stabil sözleşme)
   GET  /api/context      → açık oturumların bağlam penceresi dökümü (/context kırılımı)
+  GET  /api/limit-kutu   → limit kara kutusu: son 5 saatte limiti ne yedi + %1 oranı + sapma
   POST /api/calibrate    → gerçek /usage %'siyle limit bütçesini çapala
 
 Güvenlik: yalnız loopback · credential dosyalarına dokunmaz · SADECE ~/.claude/projects OKUR.
@@ -289,6 +290,11 @@ class Handler(BaseHTTPRequestHandler):
             from usage import context
             bd = parse_qs(parsed.query).get('breakdown', ['1'])[0] != '0'
             self._json(200, context.compute(breakdown=bd and context.breakdown_enabled())); return
+
+        if path in ('/api/limit-kutu', '/api/limit-kutu/'):
+            # Limit Kara Kutusu kartı: yan etkisiz, ağsız (seri + masaüstü geçmişi + transcript).
+            from usage import limitseri
+            self._json(200, limitseri.kutu_onbellekli()); return
 
         if path in ('/api/providers', '/api/providers/'):
             try:
