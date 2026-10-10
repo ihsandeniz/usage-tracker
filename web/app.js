@@ -38,6 +38,7 @@ const I18N = {
       + 'variable name and whether it is set. To add a key: ./setup.sh --ui → step "keys".',
     keySet: 'set', keyUnset: 'not set', rateAt: 'rate', enteredOn: 'entered',
     win5h: '5-hour window', winWeek: 'Weekly', winWeekModel: 'Weekly model',
+    forecastEta: 'at this rate, full in ~{t}', uDay: 'd', uHour: 'h', uMin: 'm',
     winReset: 'window reset since', measured: 'measured', ago: 'ago',
     limitFloor: 'reported by the provider — a floor, not a live counter',
     ctxTitle: 'Context Window', ctxSessions: 'sessions', ctxNone: 'no open Claude Code session',
@@ -81,6 +82,7 @@ const I18N = {
       + 'ortam değişkeninin adını ve dolu/boş durumunu. Anahtar eklemek için: ./setup.sh --ui → “keys” adımı.',
     keySet: 'dolu', keyUnset: 'boş', rateAt: 'kur', enteredOn: 'girildi',
     win5h: '5 saatlik pencere', winWeek: 'Haftalık', winWeekModel: 'Haftalık model',
+    forecastEta: 'bu hızla ~{t} içinde dolar', uDay: 'g', uHour: 's', uMin: 'dk',
     winReset: 'pencere sıfırlandı —', measured: 'ölçüm', ago: 'önce',
     limitFloor: 'sağlayıcının kendi bildirimi — anlık sayaç değil, alt sınır',
     ctxTitle: 'Bağlam Penceresi', ctxSessions: 'oturum', ctxNone: 'açık Claude Code oturumu yok',
@@ -205,8 +207,23 @@ function countdown(sec) {
   // ve okuyan kimse bunun 3,5 gün olduğunu tek bakışta göremiyordu.
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
-  if (d > 0) return `${d}g ${h}s`;
-  return h > 0 ? `${h}s ${m}dk` : `${m}dk`;
+  // Birimler dile bağlı: İngilizce arayüz "3g 5s" basıyordu (2026-10-10, goz).
+  const [ud, uh, um] = [t('uDay'), t('uHour'), t('uMin')];
+  if (d > 0) return `${d}${ud} ${h}${uh}`;
+  return h > 0 ? `${h}${uh} ${m}${um}` : `${m}${um}`;
+}
+// Tükenme tahmini: bu hızla bar kaç saniye sonra dolar — gösterilecek bir şey yoksa null.
+// Sayı motordan gelir (`forecast.etaMs`); panel yalnız süreyi kendi saatine göre yeniden sayar.
+// Motorun `etaText`'i kullanılmaz: gün kademesi yok (2 gün "48s 45dk" basılıyordu) ve dili
+// sabit Türkçe. Bayat ya da ölçülemeyen barda tahmin gösterilmez: donmuş bir yüzdeden
+// türetilmiş "şu kadar sonra dolar", ekrandaki en kendinden emin yalan olurdu.
+function forecastSec(b, nowMs) {
+  if (!b || b.stale || b.pct == null) return null;
+  const f = b.forecast;
+  if (!f || !f.willExceed || typeof f.etaMs !== 'number' || !isFinite(f.etaMs)) return null;
+  if (b.resetAtMs && f.etaMs >= b.resetAtMs) return null;   // reset'ten sonra dolan bar dolmaz
+  const sec = Math.round((f.etaMs - nowMs) / 1000);
+  return sec > 0 ? sec : null;
 }
 function lbar(name, sub, b, th) {
   const pct = b && b.pct != null ? b.pct : null;
@@ -225,14 +242,18 @@ function lbar(name, sub, b, th) {
   const budget = b && b.subLeft != null
     ? esc(b.subLeft)
     : (b && b.budget ? `${unitsStr} / ${b.budget.toLocaleString()} ${t('units')}` : `${unitsStr} ${t('units')}`);
-  const forecast = b && b.forecast && b.forecast.willExceed ? b.forecast.etaText : null;
-  const forecastClass = forecast && pct >= 75 ? 'forecast-warn' : 'forecast-ok';
+  const fsec = forecastSec(b, Date.now());
+  const forecast = fsec == null ? null : t('forecastEta').replace('{t}', countdown(fsec));
+  // Satır yalnız "reset'ten önce dolar" durumunda çıkar, yani kendisi bir uyarıdır: hep amber,
+  // yüzde uyarı eşiğini de geçtiyse kırmızı. (Gri hali birim satırıyla aynı renkteydi ve
+  // reset'ten 7 saat önce dolacak bir bar bilgi notu gibi duruyordu — goz, 2026-10-10.)
+  const forecastClass = forecast && pct >= (th.warn ?? 75) ? ' forecast-warn' : '';
   return `<div class="lbar">
     <div class="lbar-head"><span class="lbar-name">${esc(name)}${sub ? ` <small>${esc(sub)}</small>` : ''}</span>
       <span class="lbar-pct">${label}</span></div>
     <div class="track${pct == null ? ' unmeasured' : ''}"><div class="fill ${barClass(pct, th)}" style="width:${w}%"></div></div>
     <div class="lbar-sub"><span>${budget}</span><span>${reset}</span></div>
-    ${forecast ? `<div class="lbar-forecast ${forecastClass}">${esc(forecast)}</div>` : ''}
+    ${forecast ? `<div class="lbar-forecast${forecastClass}">${esc(forecast)}</div>` : ''}
   </div>`;
 }
 function renderLimits(u) {

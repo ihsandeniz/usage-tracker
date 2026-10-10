@@ -226,3 +226,82 @@ class ProviderFilter(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# Third harness: the depletion forecast line under each limit bar.
+FORECAST_HARNESS = r'''
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+// countdown's units come from the i18n table; lift the Turkish ones from the real file.
+const units = [...src.matchAll(/uDay: '([^']*)', uHour: '([^']*)', uMin: '([^']*)'/g)].map(m => m.slice(1));
+if (units.length !== 2) { console.error('UNITS_NOT_EN_AND_TR'); process.exit(2); }
+var t = k => ({uDay: units[1][0], uHour: units[1][1], uMin: units[1][2]})[k];
+for (const n of ['countdown', 'forecastSec']) {
+  const m = src.match(new RegExp('function ' + n + '\\([\\s\\S]*?\\n}', 'm'));
+  if (!m) { console.error('MISSING_FUNCTION:' + n); process.exit(2); }
+  eval(m[0]);
+}
+const c = JSON.parse(process.argv[3]);
+const out = c.bars.map(b => { const s = forecastSec(b, c.now); return s == null ? null : countdown(s); });
+console.log(JSON.stringify(out));
+'''
+
+
+@unittest.skipUnless(NODE, 'node not installed — panel behaviour cannot be executed here')
+class ForecastLineIsHonest(unittest.TestCase):
+    """Measured 2026-10-10 on the live panel: the Codex card printed "≈ 48s 45dk sonra dolar"
+    — two days written as 48 hours, because the engine's `etaText` has no day tier while the
+    panel's own `countdown` does; the English UI printed the same Turkish sentence. The line
+    is now built from `etaMs`, and it is withheld whenever the number under it is not a
+    measurement: a stale bar, an unmeasured bar, an ETA past the reset."""
+
+    NOW = 1_800_000_000_000
+    H = 3_600_000
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.harness = Path(cls._tmp.name) / 'forecast.js'
+        cls.harness.write_text(FORECAST_HARNESS, encoding='utf-8')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def lines(self, *bars):
+        out = subprocess.run([NODE, str(self.harness), str(APP_JS),
+                              json.dumps({'now': self.NOW, 'bars': list(bars)})],
+                             capture_output=True, text=True, encoding='utf-8',
+                             errors='replace', timeout=30)
+        self.assertEqual(out.returncode, 0, f'harness failed: {out.stderr.strip()}')
+        return json.loads(out.stdout)
+
+    def bar(self, eta_h, **kw):
+        b = {'pct': 60, 'stale': False, 'resetAtMs': self.NOW + 100 * self.H,
+             'forecast': {'willExceed': True, 'etaMs': self.NOW + int(eta_h * self.H),
+                          'etaText': 'motor metni'}}
+        b.update(kw)
+        return b
+
+    def test_two_days_reads_as_days_not_48_hours(self):
+        self.assertEqual(self.lines(self.bar(48.75)), ['2g 0s'])
+
+    def test_short_eta_reads_in_hours_and_minutes(self):
+        self.assertEqual(self.lines(self.bar(2.5)), ['2s 30dk'])
+
+    def test_no_forecast_means_no_line(self):
+        none = {'willExceed': False, 'etaMs': None, 'etaText': None}
+        self.assertEqual(self.lines(self.bar(5, forecast=none), self.bar(5, forecast=None)),
+                         [None, None])
+
+    def test_stale_or_unmeasured_bar_shows_no_forecast(self):
+        self.assertEqual(self.lines(self.bar(5, stale=True), self.bar(5, pct=None)), [None, None])
+
+    def test_eta_after_reset_or_in_the_past_shows_nothing(self):
+        self.assertEqual(self.lines(self.bar(150), self.bar(-1)), [None, None])
+
+    def test_both_languages_carry_the_sentence(self):
+        src = APP_JS.read_text(encoding='utf-8')
+        self.assertEqual(src.count("forecastEta: '"), 2, 'en + tr')
+        self.assertIn("uDay: 'd', uHour: 'h', uMin: 'm'", src, 'English units, not g/s/dk')
+        self.assertNotIn('forecast.etaText', src, 'panel must not print the engine text')

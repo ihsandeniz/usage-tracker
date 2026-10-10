@@ -159,8 +159,7 @@ table.models{width:100%;border-collapse:collapse;font-size:13px}
 .fill.crit{background:var(--red);color:var(--red)}
 .fill.none{background:var(--cyan-dim);color:var(--cyan-dim)}
 .lbar-sub{font-size:11px;color:var(--muted);margin-top:4px;display:flex;justify-content:space-between}
-.lbar-forecast{font-size:10px;color:var(--amber);margin-top:6px;font-style:italic;letter-spacing:.3px}
-.lbar-forecast.forecast-ok{color:var(--muted)}
+.lbar-forecast{font-size:11px;color:var(--amber);margin-top:6px;font-style:italic}
 .lbar-forecast.forecast-warn{color:var(--red);font-weight:600}
 
 /* ── calibration ── */
