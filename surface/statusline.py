@@ -288,6 +288,8 @@ def main():
             if birlesik:
                 at = max(w.get('at') or 0 for w in birlesik.values())
                 _paths.atomic_write_text(yol, json.dumps({'at': at, 'windows': birlesik}))
+                from usage import limitseri          # zaman serisi: yalnız değer değişince 1 satır
+                limitseri.ekle(birlesik, at, 'statusline')
         except Exception:
             pass
     parcalar = []

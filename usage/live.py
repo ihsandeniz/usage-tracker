@@ -20,6 +20,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from . import limitseri
+
 CREDS_PATH = Path.home() / '.claude' / '.credentials.json'
 USAGE_URL  = 'https://api.anthropic.com/api/oauth/usage'
 BETA       = 'oauth-2025-04-20'
@@ -282,6 +284,7 @@ def fetch(force: bool = False) -> dict:
             fetched_at = time.time()
             _CACHE = (fetched_at, res)
             _save_disk_cache(fetched_at, res)
+            limitseri.ekle(res.get('windows'), fetched_at, 'live')   # yalnız değer değişince 1 satır
             res = _with_freshness(res, fetched_at, fetched_at)
         elif _CACHE:
             stale = dict(_CACHE[1])
