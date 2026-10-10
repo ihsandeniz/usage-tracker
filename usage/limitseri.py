@@ -287,18 +287,20 @@ def _pay(sozluk, toplam):
         if toplam > 0 else {}
 
 
-def aralik_dokumu(turns) -> dict:
+def aralik_dokumu(turns, model_kisa=None) -> dict:
     """Bir aralığa düşen turn'leri ağırlıklı birim üzerinden paylara böl.
 
     turns = engine.Turn listesi (zaten aralığa süzülmüş). Paylar 0-1, her döküm kendi içinde 1'e
     toplanır. Oturum anahtarı ham `sessionId`dir — yalnız yerel gösterim içindir, dışa aktarım
     (FAZ 5) bunu taşımaz.
-      oturum  {sid: pay} · model {kısa ad: pay} · alt_ajan = alt ajan turn'lerinin payı
+      oturum  {sid: pay} · model {kısa ad: pay} · surum {Claude Code sürümü: pay}
+      alt_ajan = alt ajan turn'lerinin payı
       onbellek_okuma = birimin önbellek-okuma (cache_read × 0,1 × model ağırlığı) bileşeninin payı
     """
     from .engine import _model_weight, _short_model
+    model_kisa = model_kisa or _short_model
     birim = ham = cr_birim = alt = 0.0
-    oturum, model = {}, {}
+    oturum, model, surum = {}, {}, {}
     n = 0
     for t in turns:
         n += 1
@@ -309,11 +311,13 @@ def aralik_dokumu(turns) -> dict:
             alt += t.units
         sid = getattr(t, 'sid', '') or '?'
         oturum[sid] = oturum.get(sid, 0.0) + t.units
-        m = _short_model(t.model)
+        m = model_kisa(t.model)
         model[m] = model.get(m, 0.0) + t.units
+        v = getattr(t, 'ver', '') or '?'
+        surum[v] = surum.get(v, 0.0) + t.units
     return {
         'turn': n, 'birim': round(birim, 1), 'ham': int(ham),
-        'oturum': _pay(oturum, birim), 'model': _pay(model, birim),
+        'oturum': _pay(oturum, birim), 'model': _pay(model, birim), 'surum': _pay(surum, birim),
         'alt_ajan': round(alt / birim, 4) if birim > 0 else 0.0,
         'onbellek_okuma': round(cr_birim / birim, 4) if birim > 0 else 0.0,
     }
@@ -392,7 +396,7 @@ def gozlemler(pencere, seri_dosya=None, masaustu=None) -> list:
 
 
 def olc(gozlem_listesi, turns, pencere, asgari_puan=ASGARI_PUAN, hizli_esik=HIZLI_ESIK,
-        temel_asgari=TEMEL_ASGARI, temel_kayan=TEMEL_KAYAN, dilim=False) -> list:
+        temel_asgari=TEMEL_ASGARI, temel_kayan=TEMEL_KAYAN, dilim=False, model_kisa=None) -> list:
     """Her aralık için oran (%1 başına birim) + kayan temel + bayrak.
 
     turns = engine.Turn listesi (herhangi sıra). Aralığa (t0, t1] içindeki turn'ler düşer.
@@ -410,7 +414,7 @@ def olc(gozlem_listesi, turns, pencere, asgari_puan=ASGARI_PUAN, hizli_esik=HIZL
     for g0, g1 in _araliklar(gozlem_listesi, pencere, asgari_puan, dilim):
         i = bisect.bisect_right(ms, g0['t'] * 1000)
         j = bisect.bisect_right(ms, g1['t'] * 1000)
-        dok = aralik_dokumu(ts[i:j])
+        dok = aralik_dokumu(ts[i:j], model_kisa)
         puan = round(g1['p'] - g0['p'], 1)
         o = {'t0': g0['t'], 't1': g1['t'], 'p0': g0['p'], 'p1': g1['p'], 'puan': puan,
              'sure_sn': round(g1['t'] - g0['t']), 'kaynak': g1['k'], 'oran': None,
@@ -553,6 +557,191 @@ def kutu_onbellekli(**kw) -> dict:
             v = {'pencere': 'five_hour', 'durum': 'hata', 'hata': type(e).__name__}
         _kutu_onbellek.update(t=_time.time(), v=v)
         return v
+
+
+# ── FAZ 5: kanıt dışa aktarımı (+ Codex, deneysel) ─────────────────────────────────────
+
+KANIT_BICIM = 'usage-tracker-limit-evidence/1'
+KANIT_PENCERE = {'5h': 'five_hour', '7d': 'seven_day'}
+CODEX_GURULTU_CV = 0.5     # PLAN §6: Codex CV'si bunu aşarsa oran/bayrak verilmez
+
+
+def _utc_dk(t):
+    """Epoch sn → 'YYYY-MM-DDTHH:MMZ' (UTC; biçim saniyeyi taşımaz → dakikaya aşağı yuvarlanır)."""
+    return datetime.fromtimestamp(t, tz=timezone.utc).strftime('%Y-%m-%dT%H:%MZ')
+
+
+def _baskin(paylar):
+    return next(iter(paylar), None) if paylar else None
+
+
+def _kanit_araliklari(ar, model_adi=None):
+    """olc() çıktısı → yalnız izinli alanlar. Oturum, yol, istem, kimlik buraya HİÇ girmez:
+    alan listesi beyaz listedir, kaynak sözlükten kopyalama yapılmaz."""
+    out = []
+    for a in ar:
+        if a['oran'] is None:
+            continue
+        d = a['dokum']
+        modeller = {}
+        for m, v in d['model'].items():
+            ad = (model_adi or _claude_aile)(m)
+            modeller[ad] = modeller.get(ad, 0.0) + v
+        modeller = {m: round(v, 2) for m, v in modeller.items() if v >= 0.005}
+        out.append({
+            'start': _utc_dk(a['t0']), 'end': _utc_dk(a['t1']),
+            'points': a['puan'], 'minutes': round(a['sure_sn'] / 60),
+            'units_per_pct': round(a['oran']), 'baseline': round(a['temel']) if a['temel'] else None,
+            'ratio_to_baseline': a['kat'], 'flagged_2x_faster': a['bayrak'],
+            'models': modeller, 'subagent_share': round(d['alt_ajan'], 2),
+            'cache_read_share': round(d['onbellek_okuma'], 2),
+            'client_version': _surum_adi(_baskin(d.get('surum', {}))),
+        })
+    return out
+
+
+def _claude_aile(m):
+    """Kanıtta model adı yalnız aile: opus/sonnet/haiku/fable, gerisi 'other' (ör. '<synthetic>',
+    vekil sunucuların özel adları)."""
+    return m if m in ('opus', 'sonnet', 'haiku', 'fable') else 'other'
+
+
+def _codex_aile(m):
+    """Codex model adı yalnız 'gpt-…'/'o…' biçimindeyse ve kısaysa geçer; gerisi 'other'."""
+    import re
+    from .providers import codex as _codex
+    k = _codex._short(m)
+    return k if re.fullmatch(r'(gpt|o\d|codex)[a-z0-9.\-]{0,30}', k) else 'other'
+
+
+def _surum_adi(v):
+    """Yalnız sürüm biçimindeki değer geçer (ör. 2.1.197); başka her şey None."""
+    import re
+    return v if isinstance(v, str) and re.fullmatch(r'\d+(\.\d+){1,3}', v) else None
+
+
+def _codex_kanit(pencere, veri=None):
+    from .providers import codex as _codex
+    from .engine import Turn
+    if veri is None:
+        veri = _codex.limit_gecmisi(pencere)
+    if veri is None:
+        return {'experimental': True, 'status': 'no-data'}
+    gozlem, olaylar = veri
+    turns = [Turn(ms, model, float(inp + out), inp + out, inp, out, 0, 0, '')
+             for ms, model, inp, out in olaylar]
+    ar = olc(gozlem, turns, pencere, model_kisa=_codex._short)
+    oz = ozet(ar)
+    r = {'experimental': True, 'unit': 'uncached input + output tokens',
+         'intervals': oz['aralik'], 'measured': oz['olculen'], 'cv': oz['cv']}
+    if oz['olculen'] < 2:
+        r['status'] = 'no-data'
+    elif oz['cv'] is None or oz['cv'] > CODEX_GURULTU_CV:
+        r['status'] = 'noisy'           # oran ve bayrak bilerek verilmez
+    else:
+        r.update(status='ok', median_units_per_pct=round(oz['medyan']), flagged=oz['bayrak'],
+                 flagged_intervals=[a for a in _kanit_araliklari(ar, _codex_aile)
+                                    if a['flagged_2x_faster']])
+    return r
+
+
+def kanit(pencere='5h', seri_dosya=None, masaustu=None, turns=None, codex=True,
+          codex_veri=None, arac_surumu=None) -> dict:
+    """Paylaşılabilir, isimsiz limit kanıtı. Ağsız, salt-okuma.
+
+    Yalnız: UTC saat (dakika), oran, temel, kat, bayrak, model kısa adı, istemci sürümü, paylar.
+    İstem, yol, proje adı, oturum kimliği, git dalı, hesap (org) YOK — çıktı beyaz listeden
+    kurulur ve basılmadan önce `sizinti_bul` ile taranır (cmd_kanit).
+    """
+    from . import engine
+    w = KANIT_PENCERE[pencere]
+    g = gozlemler(w, seri_dosya, masaustu)
+    if turns is None:
+        turns = engine._scan_turns(int((g[0]['t'] - 6 * 3600) * 1000)) if g else []
+    ar = olc(g, turns, w)
+    oz = ozet(ar)
+    out = {
+        'format': KANIT_BICIM, 'tool': f'usage-tracker {arac_surumu}' if arac_surumu else 'usage-tracker',
+        'window': pencere,
+        'method': ('units_per_pct = weighted local Claude Code units consumed per 1% of the '
+                   f'official limit, over continuous stretches of >= {ASGARI_PUAN} points without '
+                   'a reset. weights: opus/fable 1, sonnet 0.25, haiku 0.05 x (out*4 + in + '
+                   f'cache_write + cache_read*0.1). flagged = <= {HIZLI_ESIK} x rolling median of '
+                   'earlier stretches. Usage outside this machine (claude.ai, other computers) is '
+                   'not in the units.'),
+        'claude': {
+            'summary': {'intervals': oz['aralik'], 'measured': oz['olculen'],
+                        'median_units_per_pct': round(oz['medyan']) if oz['medyan'] else None,
+                        'cv': oz['cv'], 'flagged': oz['bayrak'],
+                        'first': _utc_dk(ar[0]['t0']) if ar else None,
+                        'last': _utc_dk(ar[-1]['t1']) if ar else None},
+            'intervals': _kanit_araliklari(ar),
+        },
+    }
+    if codex:
+        out['codex'] = _codex_kanit(w, codex_veri)
+    return out
+
+
+def sizinti_bul(metin) -> list:
+    """Kanıt metninde kişisel/tanımlayıcı veri ara → bulunan desen adları (boş = temiz).
+
+    Son savunma hattı: çıktı zaten beyaz listeden kuruluyor; bu tarama bir alan kazara
+    eklenirse kanıtın basılmasını durdurur.
+    """
+    import getpass
+    import re
+    bulgu = []
+    ev = str(_paths.home())
+    if ev and len(ev) > 1 and ev in metin:
+        bulgu.append('home-dir')
+    for ad, desen in (
+            ('unix-path', r'(?<![\w.])/(home|Users|root|mnt|tmp|var|opt)/'),
+            ('windows-path', r'[A-Za-z]:\\\\'),
+            ('uuid', r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'),
+            ('email', r'[\w.+-]+@[\w-]+\.[\w.]+'),
+            ('org-key', r'"org(_?id|anization)?"\s*:'),
+            ('org-id', r'\borg-[A-Za-z0-9]{6,}'),
+            ('api-key', r'\bsk-[A-Za-z0-9_-]{10,}'),
+            ('message-id', r'\b(msg|req|toolu)_[A-Za-z0-9]{8,}'),
+            ('session-key', r'"(sessionId|session_id|cwd|gitBranch|prompt|content)"\s*:')):
+        if re.search(desen, metin):
+            bulgu.append(ad)
+    try:
+        kul = getpass.getuser()
+    except Exception:
+        kul = ''
+    if len(kul) >= 4 and re.search(r'\b' + re.escape(kul) + r'\b', metin, re.I):
+        bulgu.append('username')
+    return bulgu
+
+
+def kanit_metni(k) -> str:
+    """İnsan okunur (İngilizce — bir GitHub başlığına yapıştırılır) özet."""
+    c = k['claude']['summary']
+    cv = f"{c['cv'] * 100:.0f}%" if c['cv'] is not None else '—'
+    s = [f"{k['tool']} · limit evidence · window {k['window']}",
+         f"Claude: {c['measured']} measured stretches ({c['first']} → {c['last']}), "
+         f"median {c['median_units_per_pct']} units per 1%, CV {cv}, flagged 2x-faster: {c['flagged']}",
+         '', 'start (UTC)        min  points  units/1%   x usual  flag  models  client']
+    for a in k['claude']['intervals']:
+        m = ' '.join(f'{n} {v:.0%}' for n, v in a['models'].items())
+        s.append(f"{a['start']}  {a['minutes']:4d}  {a['points']:6.0f}  {a['units_per_pct']:9d}  "
+                 f"{a['ratio_to_baseline'] if a['ratio_to_baseline'] is not None else '—':>7}  "
+                 f"{'2x' if a['flagged_2x_faster'] else '':4}  {m}  {a['client_version'] or '—'}")
+    cx = k.get('codex')
+    if cx:
+        s.append('')
+        if cx['status'] == 'noisy':
+            s.append(f"Codex (experimental): noisy — {cx['measured']} stretches, CV "
+                     f"{cx['cv'] * 100:.0f}% > {CODEX_GURULTU_CV:.0%}; no ratio or flag reported.")
+        elif cx['status'] == 'ok':
+            s.append(f"Codex (experimental): median {cx['median_units_per_pct']} tokens per 1%, "
+                     f"CV {cx['cv'] * 100:.0f}%, flagged {cx['flagged']}")
+        else:
+            s.append('Codex (experimental): no data.')
+    s += ['', 'method: ' + k['method']]
+    return '\n'.join(s)
 
 
 def _saat(t):

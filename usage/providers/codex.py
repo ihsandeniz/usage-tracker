@@ -290,6 +290,70 @@ def _build_limits(rate_obs: dict, now_ms: int):
             newest.get('planType'))
 
 
+# ── Limit Kara Kutusu (FAZ 5, deneysel) ────────────────────────────────────────────────
+_PENCERE_DK = {'five_hour': 300, 'seven_day': 10080}
+
+
+def limit_gecmisi(pencere: str = 'five_hour'):
+    """Tüm rollout'lardan yüzde gözlemleri + token olayları → (gozlemler, olaylar) ya da None.
+
+    SALT-OKUMA, ağsız, `collect()`'in önbelleğine ve tavanlarına dokunmaz (oran geçmişin
+    tamamını ister; kart en yeni 40 dosyayla yetinir).
+      gozlem: {'t': sn, 'w': pencere, 'p': yüzde, 'r': resets_at (sn), 'k': 'codex'}
+              yalnız `limit_id` 'codex' (ya da yok) ve süresi pencereye uyan slot — 'premium',
+              'base_model_inference' gibi ayrı kotalar karışmaz.
+      olay:   (ms, model, önbelleksiz girdi, çıktı)
+    """
+    if not SESSIONS_DIR.exists():
+        return None
+    dk = _PENCERE_DK[pencere]
+    gozlemler, olaylar = [], []
+    for fp in sorted(SESSIONS_DIR.rglob('rollout-*.jsonl')):
+        model = ''
+        try:
+            fh = fp.open(encoding='utf-8', errors='replace')
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                if '"model"' in line:
+                    m = _MODEL_RE.search(line)
+                    if m:
+                        model = m.group(1)
+                if '"token_count"' not in line:
+                    continue
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                payload = o.get('payload')
+                if not isinstance(payload, dict) or payload.get('type') != 'token_count':
+                    continue
+                ms = _iso_to_ms(o.get('timestamp') or '')
+                if ms is None:
+                    continue
+                rl = payload.get('rate_limits')
+                if isinstance(rl, dict) and rl.get('limit_id') in ('codex', None):
+                    for slot in ('primary', 'secondary'):
+                        w = rl.get(slot)
+                        if not isinstance(w, dict) or w.get('window_minutes') != dk:
+                            continue
+                        pct, ra = w.get('used_percent'), w.get('resets_at')
+                        if isinstance(pct, (int, float)) and not isinstance(pct, bool):
+                            gozlemler.append({'t': ms / 1000.0, 'w': pencere, 'p': float(pct),
+                                              'r': int(ra) if isinstance(ra, (int, float))
+                                              and not isinstance(ra, bool) else None,
+                                              'k': 'codex'})
+                last = (payload.get('info') or {}).get('last_token_usage') or {}
+                if last:
+                    inp = int(last.get('input_tokens') or 0)
+                    cached = int(last.get('cached_input_tokens') or 0)
+                    olaylar.append((ms, model, max(0, inp - cached), int(last.get('output_tokens') or 0)))
+    gozlemler.sort(key=lambda g: g['t'])
+    olaylar.sort()
+    return gozlemler, olaylar
+
+
 def _short(model: str) -> str:
     m = (model or '').lower()
     m = m.split('/')[-1]

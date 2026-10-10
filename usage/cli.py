@@ -1228,6 +1228,25 @@ def _add_source_flags(parser):
     parser.add_argument('--timeout', type=float, default=3.0, help='server timeout (seconds)')
 
 
+def cmd_kanit(args) -> int:
+    """Shareable, anonymous limit evidence (Limit Black Box). Local files only, no network.
+
+    The output is built from an allow-list and scanned before printing; if the scan finds
+    anything that looks personal (a path, an id, an e-mail) nothing is printed and the exit
+    code is 1 — a leak is worse than no evidence.
+    """
+    from . import limitseri
+    k = limitseri.kanit(args.window, codex=not args.no_codex, arac_surumu=version())
+    text = json.dumps(k, ensure_ascii=False, indent=1) if args.json else limitseri.kanit_metni(k)
+    leaks = limitseri.sizinti_bul(text)
+    if leaks:
+        print('refusing to print: the evidence contains ' + ', '.join(leaks)
+              + ' — please report this as a bug', file=sys.stderr)
+        return 1
+    print(text)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(prog='usage-tracker',
                      description='AI usage, limits and real spend — from the command line.',
@@ -1321,6 +1340,17 @@ def build_parser() -> argparse.ArgumentParser:
                          help='key to write in the keys step; the value is read from stdin')
     p_setup.add_argument('--json', action='store_true', help='JSON instead of human output')
     p_setup.set_defaults(func=cmd_setup)
+
+    p_kanit = subparsers.add_parser(
+        'kanit', help='anonymous limit evidence: units per 1%% of the limit, and 2x-faster windows',
+        description='Prints how much local work each 1% of the official Claude limit bought, '
+                    'per continuous stretch, with a flag where it fell to half the usual. '
+                    'UTC times (minute), ratios, model short names and client version only — '
+                    'no prompts, paths, project names, session ids or account ids.')
+    p_kanit.add_argument('--window', '--pencere', choices=('5h', '7d'), default='5h')
+    p_kanit.add_argument('--json', action='store_true')
+    p_kanit.add_argument('--no-codex', action='store_true', help='leave out the experimental Codex part')
+    p_kanit.set_defaults(func=cmd_kanit)
 
     p_panel = subparsers.add_parser(
         'panel', help='open the panel in a browser, starting the server if needed')

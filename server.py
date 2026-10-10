@@ -415,7 +415,7 @@ class Handler(BaseHTTPRequestHandler):
 
 # CLI alt komutları (usage/cli.py). Tek giriş noktası bilinçli: donmuş paketin içinde
 # ikinci bir çalıştırılabilir yok — `usage-tracker.exe guard` çalışmak zorunda.
-CLI_COMMANDS = ('usage', 'providers', 'guard', 'watch', 'doctor', 'config',
+CLI_COMMANDS = ('usage', 'providers', 'guard', 'watch', 'doctor', 'config', 'kanit',
                 'setup', 'panel')
 
 
