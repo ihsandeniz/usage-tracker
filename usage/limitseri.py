@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import platform as _paths
 
@@ -280,7 +280,233 @@ def geri_al(kaynak=None) -> dict:
     return {'durum': 'ok', 'ornekler': out, 'neden': None}
 
 
+# ── FAZ 2: aralık dökümü (iki gözlem arası turn'ler) ───────────────────────────────────
+
+def _pay(sozluk, toplam):
+    return {k: round(v / toplam, 4) for k, v in sorted(sozluk.items(), key=lambda x: -x[1])} \
+        if toplam > 0 else {}
+
+
+def aralik_dokumu(turns) -> dict:
+    """Bir aralığa düşen turn'leri ağırlıklı birim üzerinden paylara böl.
+
+    turns = engine.Turn listesi (zaten aralığa süzülmüş). Paylar 0-1, her döküm kendi içinde 1'e
+    toplanır. Oturum anahtarı ham `sessionId`dir — yalnız yerel gösterim içindir, dışa aktarım
+    (FAZ 5) bunu taşımaz.
+      oturum  {sid: pay} · model {kısa ad: pay} · alt_ajan = alt ajan turn'lerinin payı
+      onbellek_okuma = birimin önbellek-okuma (cache_read × 0,1 × model ağırlığı) bileşeninin payı
+    """
+    from .engine import _model_weight, _short_model
+    birim = ham = cr_birim = alt = 0.0
+    oturum, model = {}, {}
+    n = 0
+    for t in turns:
+        n += 1
+        birim += t.units
+        ham += t.raw
+        cr_birim += _model_weight(t.model) * t.cr * 0.1
+        if getattr(t, 'side', False):
+            alt += t.units
+        sid = getattr(t, 'sid', '') or '?'
+        oturum[sid] = oturum.get(sid, 0.0) + t.units
+        m = _short_model(t.model)
+        model[m] = model.get(m, 0.0) + t.units
+    return {
+        'turn': n, 'birim': round(birim, 1), 'ham': int(ham),
+        'oturum': _pay(oturum, birim), 'model': _pay(model, birim),
+        'alt_ajan': round(alt / birim, 4) if birim > 0 else 0.0,
+        'onbellek_okuma': round(cr_birim / birim, 4) if birim > 0 else 0.0,
+    }
+
+
+# ── FAZ 3: aralıklar · temel çizgi · sapma ────────────────────────────────────────────
+
+PENCERE_SN = {'five_hour': 5 * 3600, 'seven_day': 7 * 24 * 3600}
+ASGARI_PUAN = 5            # tam sayı yüzde: < 5 puanlık aralık gürültü (PLAN §6)
+AZAMI_BOSLUK_SN = 10 * 60  # sıfırlanma anı bilinmeyen kaynakta (masaüstü nabzı 5 dk) boşluk = kopuş
+HIZLI_ESIK = 0.5           # aralık oranı ≤ 0,5 × temel → "2× hızlı"
+TEMEL_ASGARI = 3           # bayrak için en az bu kadar önceki aralık
+TEMEL_KAYAN = 30           # temel = son bu kadar geçerli aralığın medyanı
+
+
+def _kesintisiz(gozlemler, pencere):
+    """Gözlemleri (tek pencere, t sıralı) kesintisiz parçalara böl.
+
+    Kopuş: yüzde düşüşü · sıfırlanma anı değişimi (±60 sn) ya da geçilmesi · `r` bilinmiyorsa
+    AZAMI_BOSLUK_SN'den uzun boşluk ve pencere süresini aşan parça (gizli sıfırlanma).
+    Ardışık eşit değerler (çift yazım) tek sayılır.
+    """
+    pen = PENCERE_SN[pencere]
+    parcalar, cur = [], []
+    for g in gozlemler:
+        if cur:
+            o = cur[-1]
+            kop = g['p'] < o['p']
+            if o['r'] is not None and g['r'] is not None:
+                kop = kop or abs(g['r'] - o['r']) > AYNI_PENCERE_SN or g['t'] >= o['r']
+            else:
+                kop = kop or g['t'] - o['t'] > AZAMI_BOSLUK_SN or g['t'] - cur[0]['t'] > pen
+            if kop:
+                parcalar.append(cur)
+                cur = []
+            elif g['p'] == o['p'] and o['r'] is not None:
+                continue                      # değişim serisinde tekrar satırı
+        cur.append(g)
+    if cur:
+        parcalar.append(cur)
+    return parcalar
+
+
+def _araliklar(gozlemler, pencere, asgari_puan, dilim=False):
+    """Ölçülecek aralıklar → [(g0, g1)].
+
+    Varsayılan: her kesintisiz parça tek aralık (≥ asgari_puan). dilim=True: parça ≥ asgari_puan
+    puanlık ardışık dilimlere bölünür — pencere içi ani sıçramayı daha erken görür ama tam sayı
+    yüzde yuvarlaması kısa dilimde ±%20'ye varır (gerçek veride CV %17 → %26, bkz. F2F3 raporu).
+    """
+    out = []
+    for parca in _kesintisiz(gozlemler, pencere):
+        if not dilim:
+            if parca[-1]['p'] - parca[0]['p'] >= asgari_puan:
+                out.append((parca[0], parca[-1]))
+            continue
+        bas = parca[0]
+        for g in parca[1:]:
+            if g['p'] - bas['p'] >= asgari_puan:
+                out.append((bas, g))
+                bas = g
+    return out
+
+
+def gozlemler(pencere, seri_dosya=None, masaustu=None) -> list:
+    """Bir pencerenin tüm gözlemleri: masaüstü geçmişi (seri başlamadan öncesi) + kendi seri.
+
+    İki kaynak aynı zaman aralığında karışmaz: seri başladığı andan sonra masaüstü örnekleri
+    atılır (biri tam sayı 5 dk nabız, öbürü değişim kaydı; karışınca sahte düşüş görülür).
+    """
+    seri = oku(pencere=pencere, dosya=seri_dosya)
+    g = geri_al(masaustu) if masaustu is not False else {'ornekler': []}
+    ilk = seri[0]['t'] if seri else float('inf')
+    mas = [o for o in g['ornekler'] if o['w'] == pencere and o['t'] < ilk]
+    return mas + seri
+
+
+def olc(gozlem_listesi, turns, pencere, asgari_puan=ASGARI_PUAN, hizli_esik=HIZLI_ESIK,
+        temel_asgari=TEMEL_ASGARI, temel_kayan=TEMEL_KAYAN, dilim=False) -> list:
+    """Her aralık için oran (%1 başına birim) + kayan temel + bayrak.
+
+    turns = engine.Turn listesi (herhangi sıra). Aralığa (t0, t1] içindeki turn'ler düşer.
+    Dönen her öğe:
+      t0, t1, p0, p1, puan, sure_sn, kaynak, oran, temel, kat (oran/temel), bayrak, durum, dokum
+    durum: 'tamam' · 'temel-yok' (önceki aralık < temel_asgari) · 'yerel-kayit-yok' (aralıkta
+    turn yok: başka makine/uygulama tüketimi; temele girmez, "hızlı" sayılmaz).
+    Bayraklı aralık da temele girer (medyan kayar, tek olay temeli bozmaz).
+    """
+    import bisect
+    import statistics
+    ts = sorted(turns, key=lambda x: x.ms)
+    ms = [x.ms for x in ts]
+    gecmis, out = [], []
+    for g0, g1 in _araliklar(gozlem_listesi, pencere, asgari_puan, dilim):
+        i = bisect.bisect_right(ms, g0['t'] * 1000)
+        j = bisect.bisect_right(ms, g1['t'] * 1000)
+        dok = aralik_dokumu(ts[i:j])
+        puan = round(g1['p'] - g0['p'], 1)
+        o = {'t0': g0['t'], 't1': g1['t'], 'p0': g0['p'], 'p1': g1['p'], 'puan': puan,
+             'sure_sn': round(g1['t'] - g0['t']), 'kaynak': g1['k'], 'oran': None,
+             'temel': None, 'kat': None, 'bayrak': False, 'durum': 'tamam', 'dokum': dok}
+        if dok['turn'] == 0:
+            o['durum'] = 'yerel-kayit-yok'
+            out.append(o)
+            continue
+        o['oran'] = round(dok['birim'] / puan, 1)
+        onceki = gecmis[-temel_kayan:]
+        if not onceki or len(onceki) < temel_asgari:
+            o['durum'] = 'temel-yok'
+        else:
+            temel = statistics.median(onceki)
+            o['temel'] = round(temel, 1)
+            o['kat'] = round(o['oran'] / temel, 3) if temel > 0 else None
+            o['bayrak'] = temel > 0 and o['oran'] <= hizli_esik * temel * (1 + 1e-9)
+        gecmis.append(o['oran'])
+        out.append(o)
+    return out
+
+
+def ozet(araliklar) -> dict:
+    """Aralık listesinin özeti: n, medyan, CV (pstdev/ortalama), bayrak sayısı."""
+    import statistics
+    v = [a['oran'] for a in araliklar if a['oran']]
+    r = {'aralik': len(araliklar), 'olculen': len(v),
+         'yerel_kayit_yok': sum(a['durum'] == 'yerel-kayit-yok' for a in araliklar),
+         'bayrak': sum(a['bayrak'] for a in araliklar), 'medyan': None, 'cv': None}
+    if v:
+        r['medyan'] = round(statistics.median(v), 1)
+    if len(v) > 1:
+        r['cv'] = round(statistics.pstdev(v) / statistics.mean(v), 4)
+    return r
+
+
+def sinav(seri_dosya=None, masaustu=None, asgari_puan=ASGARI_PUAN, turns=None,
+          dilim=False) -> dict:
+    """Geriye dönük sınav: eldeki tüm yüzde geçmişi × yerel turn'ler. Salt-okuma, ağ yok.
+
+    Çıktıda oturum kimliği yok: dökümden yalnız en büyük oturumun payı (`tepe_oturum`) kalır.
+    """
+    from . import engine
+    pen = {k: gozlemler(k, seri_dosya, masaustu) for k in PENCERELER}
+    ilk = min((g[0]['t'] for g in pen.values() if g), default=None)
+    if turns is None:
+        turns = engine._scan_turns(int((ilk - 6 * 3600) * 1000)) if ilk is not None else []
+    out = {'turn': len(turns), 'dilim': dilim, 'pencere': {}}
+    for k, g in pen.items():
+        ar = olc(g, turns, k, asgari_puan=asgari_puan, dilim=dilim)
+        for a in ar:
+            d = a.pop('dokum')
+            a['turn'] = d['turn']
+            a['model'] = d['model']
+            a['alt_ajan'] = d['alt_ajan']
+            a['onbellek_okuma'] = d['onbellek_okuma']
+            a['tepe_oturum'] = next(iter(d['oturum'].values()), 0.0)
+        out['pencere'][k] = {'gozlem': len(g), 'ozet': ozet(ar), 'araliklar': ar}
+    return out
+
+
+def _saat(t):
+    return datetime.fromtimestamp(t, tz=timezone.utc).strftime('%m-%d %H:%M')
+
+
+def _sinav_yazdir(s):
+    print(f"turn: {s['turn']} · {'dilimli (≥5 puan)' if s['dilim'] else 'kesintisiz parça'}")
+    for k, v in s['pencere'].items():
+        o = v['ozet']
+        cv = f"%{o['cv'] * 100:.0f}" if o['cv'] is not None else '—'
+        print(f"\n[{k}] gözlem {v['gozlem']} · aralık {o['aralik']} · ölçülen {o['olculen']} · "
+              f"medyan {o['medyan']} birim/%1 · CV {cv} · bayrak {o['bayrak']} · "
+              f"yerel kayıt yok {o['yerel_kayit_yok']}")
+        print('  başlangıç(UTC)  süre_dk  %0→%1   turn  oran      kat    durum')
+        for a in v['araliklar']:
+            print(f"  {_saat(a['t0'])}     {a['sure_sn'] / 60:6.0f}  {a['p0']:4.0f}→{a['p1']:<4.0f} "
+                  f"{a['turn']:5d}  {a['oran'] if a['oran'] is not None else '—':<9} "
+                  f"{a['kat'] if a['kat'] is not None else '—':<6} "
+                  f"{'⚑ 2× HIZLI' if a['bayrak'] else a['durum']}")
+        for a in v['araliklar']:
+            if a['bayrak']:
+                print(f"  ⚑ {_saat(a['t0'])}: oran {a['oran']} = temelin {a['kat']}×'i · "
+                      f"model {a['model']} · alt ajan %{a['alt_ajan'] * 100:.0f} · "
+                      f"önbellek-okuma %{a['onbellek_okuma'] * 100:.0f} · "
+                      f"tepe oturum %{a['tepe_oturum'] * 100:.0f}")
+
+
 if __name__ == '__main__':
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == 'sinav':
+        s = sinav(dilim='--dilim' in sys.argv)
+        if '--json' in sys.argv:
+            print(json.dumps(s, ensure_ascii=False, indent=1))
+        else:
+            _sinav_yazdir(s)
+        sys.exit(0)
     g = geri_al()
     zamanlar = sorted({o['t'] for o in g['ornekler']})
     print(f"masaüstü geçmişi: {g['durum']} · {len(zamanlar)} örnek · {len(g['ornekler'])} gözlem"

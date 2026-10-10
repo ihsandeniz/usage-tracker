@@ -41,7 +41,21 @@ _LOCK  = threading.Lock()
 
 # ms=epoch ms · model=ham model str · units=ağırlıklı birim · raw=ham token toplamı
 # inp/out/cc/cr = fiyatlama için token bileşenleri · mid=dedup için message id
-Turn = namedtuple('Turn', 'ms model units raw inp out cc cr mid')
+# sid=oturum (sessionId) · req=requestId · side=alt ajan (isSidechain ya da subagents/ yolu)
+# ver=Claude Code sürümü — limit aralığı dökümü (limitseri.aralik_dokumu) için
+Turn = namedtuple('Turn', 'ms model units raw inp out cc cr mid sid req side ver',
+                  defaults=('', '', False, ''))
+
+
+def _dedup_key(t):
+    """Aynı yanıtın tekrar satırları (akış parçaları, devam ettirilen oturuma kopyalanan
+    geçmiş) bir kez sayılır. message.id yanıt başına tekildir → birincil anahtar; yoksa
+    requestId. İkisi de yoksa tekilleştirilemez (None)."""
+    if t.mid:
+        return ('m', t.mid)
+    if t.req:
+        return ('r', t.req)
+    return None
 
 
 # ── ağırlık (limit boyutu — gerçek $ DEĞİL, kalibrasyon mutlak ölçeği düzeltir) ──
@@ -93,6 +107,7 @@ def _scan_turns(since_ms: int):
             stt = f.stat()
         except OSError:
             continue
+        alt_ajan_yolu = 'subagents' in f.relative_to(CLAUDE_PROJECTS_DIR).parts[:-1]
         if stt.st_mtime < cutoff_mtime:
             continue
         key = str(f)
@@ -132,7 +147,11 @@ def _scan_turns(since_ms: int):
                         # Sayısal katsayıları değiştirmek kalibrasyon ilişkisini bozar — düzeltmeden önce live veriyle doğrula.
                         units = _model_weight(model) * (out_ * 4 + inp + cc + cr * 0.1)
                         turns.append(Turn(ms, model, units, raw, inp, out_, cc, cr,
-                                          msg.get('id') or ''))
+                                          msg.get('id') or '',
+                                          o.get('sessionId') or '',
+                                          o.get('requestId') or '',
+                                          o.get('isSidechain') is True or alt_ajan_yolu,
+                                          o.get('version') or ''))
             except OSError:
                 continue
             with _LOCK:
@@ -140,10 +159,11 @@ def _scan_turns(since_ms: int):
         for t in turns:
             if t.ms < since_ms:
                 continue
-            if t.mid:
-                if t.mid in seen_ids:
+            key = _dedup_key(t)
+            if key is not None:
+                if key in seen_ids:
                     continue
-                seen_ids.add(t.mid)
+                seen_ids.add(key)
             out.append(t)
     return out
 
