@@ -12,7 +12,7 @@ import re
 import tempfile
 import unittest
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest import mock
 
 from usage import cli, engine
@@ -175,7 +175,7 @@ class BosVeriTest(unittest.TestCase):
 
 class SizintiBulTest(unittest.TestCase):
     def test_her_desen_yakalanir(self):
-        with mock.patch('usage.limitseri._paths.home', return_value=Path('/home/ornek-kisi')), \
+        with mock.patch('usage.limitseri._paths.home', return_value=PurePosixPath('/home/ornek-kisi')), \
                 mock.patch('getpass.getuser', return_value='ornekkisi'):
             for metin, beklenen in (
                     ('x /home/ornek-kisi/a', 'home-dir'), ('/Users/a/b', 'unix-path'),

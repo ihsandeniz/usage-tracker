@@ -241,7 +241,7 @@ function lift(re, name) {
 }
 eval(lift(/^const I18N = \{[\s\S]*?\n\};/m, 'I18N').replace(/^const /, 'var '));
 eval(lift(/^const roundHalfUp = [\s\S]*?\n\};/m, 'roundHalfUp').replace(/^const /, 'var '));
-eval(lift(/^const fmtTok = [\s\S]*?;\n/m, 'fmtTok').replace(/^const /, 'var '));
+eval(lift(/^const fmtTok = [\s\S]*?;\r?\n/m, 'fmtTok').replace(/^const /, 'var '));
 eval(lift(/^const LK_COLORS = .*;$/m, 'LK_COLORS').replace(/^const /, 'var '));
 var LANG = process.argv[4];
 var t = (k) => I18N[LANG]?.[k] ?? I18N.en?.[k] ?? k;

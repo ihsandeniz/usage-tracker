@@ -336,7 +336,8 @@ class WheelInstall(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.site = pathlib.Path(self._tmp.name)
+        # resolve(): Windows hands out the 8.3 short temp path (RUNNER~1); the code resolves.
+        self.site = pathlib.Path(self._tmp.name).resolve()
         self.res = self.site / 'usage' / up.BUNDLED_RES
         (self.res / 'web').mkdir(parents=True)
 
