@@ -328,6 +328,43 @@ class NothingWritesIntoTheInstallation(unittest.TestCase):
                 self.assertEqual(engine._load_calib().get('anchorPct'), 7)
 
 
+class WheelInstall(unittest.TestCase):
+    """A pip-installed wheel has no repo root: INSTALL_DIR is site-packages and holds no
+    `web/`. setup.py copies the resources into `usage/_res/`; without this lookup the
+    panel answered every page with 404 while the CLI and the JSON API looked healthy."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.site = pathlib.Path(self._tmp.name)
+        self.res = self.site / 'usage' / up.BUNDLED_RES
+        (self.res / 'web').mkdir(parents=True)
+
+    def _resolve(self):
+        with mock.patch.object(up, 'INSTALL_DIR', self.site), \
+                mock.patch.object(up, '__file__', str(self.site / 'usage' / 'platform.py')):
+            return up.resource_dir()
+
+    def test_wheel_resources_come_from_the_package(self):
+        self.assertEqual(self._resolve(), self.res)
+
+    def test_source_tree_wins_over_a_stale_copy(self):
+        """A source checkout that once ran `build_py` in place must keep serving the
+        files being edited, not the copy."""
+        (self.site / 'web').mkdir()
+        self.assertEqual(self._resolve(), self.site)
+
+    def test_setup_copies_everything_the_code_reads(self):
+        import ast
+        tree = ast.parse((REPO / 'setup.py').read_text(encoding='utf-8'))
+        names = next(ast.literal_eval(n.value) for n in ast.walk(tree)
+                     if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'RESOURCES')
+        self.assertEqual(set(names), {'web', 'data', 'price_overrides.json'})
+        manifest = (REPO / 'MANIFEST.in').read_text(encoding='utf-8')
+        for line in ('graft web', 'graft data', 'include price_overrides.json'):
+            self.assertIn(line, manifest)
+
+
 class FrozenBundle(unittest.TestCase):
     """PyInstaller unpacks a one-file build into a temp directory and points sys._MEIPASS at
     it. Anything resolved from `Path(__file__).parent.parent` lands somewhere else, so the

@@ -1,13 +1,10 @@
 # DRAFT — not published. Nothing here has been uploaded to PyPI.
 #
-# `python3 -m build` produces an sdist and a wheel from this file. The wheel installs the
-# command line (`usage-tracker kanit`, `usage`, `guard`, …) but NOT the panel's web assets:
-# `usage/platform.py:resource_dir()` looks for `web/`, `data/` and `price_overrides.json`
-# next to the `usage/` package, which inside a wheel is site-packages itself. Shipping them
-# there would put generic top-level names (`web`, `data`) into everyone's site-packages.
-# Before a PyPI release the read-only resources move under the package (e.g. `usage/_res/`)
-# and `resource_dir()` learns that location. Until then the release binaries (CI) and the
-# AUR package (packaging/aur/PKGBUILD) are the supported installs.
+# `python3 -m build` produces an sdist and a wheel from this file. The panel's read-only
+# resources (`web/`, `data/`, `price_overrides.json`) stay at the repo root, where the source
+# run, the AUR package, the PyInstaller spec and the tests expect them; `setup.py` copies them
+# into `usage/_res/` inside the wheel (no generic top-level `web`/`data` in site-packages) and
+# `usage/platform.py:resource_dir()` finds them there. MANIFEST.in keeps them in the sdist.
 
 [build-system]
 requires = ["setuptools>=68"]

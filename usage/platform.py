@@ -39,6 +39,9 @@ SYS_PLATFORM = sys.platform
 # Kurulum dizini: bu paketin kökü. **Yazılabilir varsayılmaz.**
 INSTALL_DIR = Path(__file__).resolve().parent.parent
 
+# Wheel'de salt-okunur kaynakların paket içindeki yeri (bkz. resource_dir, setup.py).
+BUNDLED_RES = '_res'
+
 
 def is_frozen() -> bool:
     """PyInstaller (veya benzeri) ile tek dosyaya paketlenmiş miyiz?"""
@@ -55,9 +58,20 @@ def resource_dir() -> Path:
 
     Dikkat: burası geçicidir, çalışma bitince silinir — kullanıcı verisi buraya değil,
     `state_dir()`/`config_dir()`/`cache_dir()`'a yazılır.
+
+    Üç kurulum biçimi, üç yer:
+      - PyInstaller paketi → `sys._MEIPASS`
+      - kaynak ağacı / AUR (`/usr/lib/usage-tracker`) → `INSTALL_DIR` (`web/` orada)
+      - wheel (pip) → `usage/_res/`: `setup.py`'deki derleme kancası kaynakları oraya
+        kopyalar; `INSTALL_DIR` site-packages olur ve orada `web/` yoktur.
     """
     meipass = getattr(sys, '_MEIPASS', None)
-    return Path(meipass) if meipass else INSTALL_DIR
+    if meipass:
+        return Path(meipass)
+    if (INSTALL_DIR / 'web').is_dir():
+        return INSTALL_DIR
+    bundled = Path(__file__).resolve().parent / BUNDLED_RES
+    return bundled if bundled.is_dir() else INSTALL_DIR
 
 _WRITE_LOCKS = {}
 _LOCKS_GUARD = threading.Lock()

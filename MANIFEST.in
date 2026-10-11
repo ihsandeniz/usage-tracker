@@ -1,0 +1,6 @@
+# sdist → wheel: setup.py copies these into usage/_res/, so the sdist must carry them
+# even where setuptools-scm (git file finder) is not installed.
+graft web
+graft data
+include price_overrides.json
+global-exclude __pycache__ *.pyc
