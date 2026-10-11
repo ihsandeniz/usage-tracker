@@ -292,7 +292,7 @@ work — is flagged **2× faster**.
 
 ```
 $ usage-tracker kanit
-usage-tracker 0.5.4 · limit evidence · window 5h
+usage-tracker 0.6.0 · limit evidence · window 5h
 Claude: 14 measured stretches (2026-09-22T19:36Z → 2026-10-08T22:02Z), median 497868 units per 1%, CV 17%, flagged 2x-faster: 0
 
 start (UTC)        min  points  units/1%   x usual  flag  models  client
