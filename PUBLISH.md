@@ -18,6 +18,8 @@ sleep 2
 curl -s 127.0.0.1:8770/v1/usage | jq .schema     # → "usage/v1"
 ./surface/waybar-usage.sh | jq .text             # → "◐ NN%"  (NOT empty)
 kill %1
+python3 -m usage.catalog --build-bundle          # refresh the bundled prices, then commit data/
+python3 -m usage.catalog --check-bundle          # the tag's CI fails on this too
 grep -rn "/home/" . --include='*.py' --include='*.js' --include='*.sh' || echo "no hardcoded home paths ✓"
 
 # systemd service template verification

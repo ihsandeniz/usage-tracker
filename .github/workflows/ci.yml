@@ -290,3 +290,7 @@ jobs:
           echo "tag=$tag  server.py=$code"
           [ "$tag" = "$code" ] || {
             echo "::error::tag v$tag does not match VERSION $code in server.py"; exit 1; }
+      - name: The bundled price catalogue must be fresh and know the current Claude models
+        # v0.6.0 shipped an 86-day-old catalogue: a clean install showed $5,774 of usage as
+        # $9,666. Tags only: age must not turn an unrelated push red as time passes.
+        run: python -m usage.catalog --check-bundle
