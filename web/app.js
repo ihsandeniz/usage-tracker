@@ -583,7 +583,7 @@ function providerBody(c) {
       <div><span class="pl">${t('today')}</span><b>${fmtTok(td.tokens)} · ${fmtUsd(td.usd, c.currency)}</b></div>
     </div>
     ${provSpark(c.byDay, true)}
-    <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} ${t('session')} · ${esc(c.auth)}</span></div>`;
+    <div class="pl-row muted"><span>${esc(((c.byModel||[])[0]||{}).short || '—')}</span><span>${c.sessions} ${t('session')} · ${c.auth === 'yerel-log' ? t('bLocalLog') : esc(c.auth)}</span></div>`;
   }
 
   if (c.kind === 'local') {           // Ollama — yerel
