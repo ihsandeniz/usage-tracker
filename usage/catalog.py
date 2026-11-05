@@ -37,6 +37,11 @@ MODELS_DEV_URL = 'https://models.dev/api.json'
 # 45 gün, "muhtemelen hâlâ doğru" ile "artık güvenme" arasındaki makul çizgi.
 STALE_AFTER_DAYS = 45
 
+# Gömülü katalogda bulunması gereken güncel Claude modelleri. Yoksa temiz kurulum bunları
+# eski aile fiyatına düşürür: 2026-11-05'te 86 günlük katalog 5.774 $'ı 9.666 $ gösterdi.
+# Yeni bir aile çıkınca buraya eklenir; `--check-bundle` sürümden önce bunu denetler.
+GEREKLI_MODELLER = ('claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1')
+
 _COST_FIELDS = ('input', 'output', 'cache_read', 'cache_write')
 
 _USER_CACHE_OVERRIDE = None        # testler ve USAGE_PRICES için; None = normal yol
@@ -75,6 +80,18 @@ def _trim_cost(cost) -> dict:
             out[k] = float(v)
         except (TypeError, ValueError):
             continue
+    # Prompt uzunluğuna göre üst fiyat (Haiku 5.5). Katmanı atmak üst fiyatı yok sayardı.
+    tiers = []
+    for t in cost.get('tiers') or ():
+        if not isinstance(t, dict) or not isinstance(t.get('tier'), dict):
+            continue
+        fiyat = {k: t[k] for k in _COST_FIELDS if isinstance(t.get(k), (int, float))}
+        boyut = t['tier'].get('size')
+        if {'input', 'output'} <= fiyat.keys() and t['tier'].get('type') == 'context' \
+                and isinstance(boyut, (int, float)):
+            tiers.append({**fiyat, 'tier': {'type': 'context', 'size': boyut}})
+    if out and tiers:
+        out['tiers'] = tiers
     return out
 
 
@@ -283,6 +300,24 @@ def build_bundle(url: str = MODELS_DEV_URL, dest: Path = None) -> Path:
     return dest
 
 
+def gomulu_sorunlari(bugun: date = None) -> list:
+    """Gömülü katalog yayımlanabilir mi? Boş liste = evet. Sürüm kapısı (CI) bunu koşar."""
+    providers, meta = _read_bundled()
+    sorunlar = []
+    tarih = meta.get('generatedAt')
+    try:
+        yas = ((bugun or date.today()) - date.fromisoformat(str(tarih)[:10])).days
+    except ValueError:
+        sorunlar.append(f'gömülü katalogun tarihi okunamadı: {tarih!r}')
+    else:
+        if yas > STALE_AFTER_DAYS:
+            sorunlar.append(f'gömülü katalog {yas} günlük (sınır {STALE_AFTER_DAYS})')
+    eksik = [m for m in GEREKLI_MODELLER if m not in providers.get('anthropic', {})]
+    if eksik:
+        sorunlar.append('gömülü katalogda eksik model: ' + ', '.join(eksik))
+    return sorunlar
+
+
 def _main(argv) -> int:
     if '--update' in argv:
         st = update()
@@ -296,6 +331,13 @@ def _main(argv) -> int:
         print(f'gömülü snapshot yazıldı → {dest} ({size_kb:.1f} KB)\n'
               f"{st['modelCount']} model / {st['providerCount']} sağlayıcı")
         return 0
+    if '--check-bundle' in argv:
+        sorunlar = gomulu_sorunlari()
+        for s in sorunlar:
+            print(f'✗ {s} — `python3 -m usage.catalog --build-bundle` ile yenileyin')
+        if not sorunlar:
+            print('✓ gömülü katalog güncel')
+        return 1 if sorunlar else 0
     st = status()
     for k in ('source', 'sourceLabel', 'path', 'generatedAt', 'ageDays', 'stale',
               'modelCount', 'providerCount'):

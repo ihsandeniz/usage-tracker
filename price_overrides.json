@@ -7,8 +7,6 @@
 
   "claude-sonnet-5": {
     "input": 2, "output": 10, "cache_read": 0.2, "cache_write": 2.5, "source": "official",
-    "_why": "Tanıtım fiyatı — 2026-08-31 dahil geçerli, 1 Eylül'den itibaren liste fiyatına döner.",
-    "until": "2026-08-31",
-    "then": { "input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75, "source": "official" }
+    "_why": "Duyurulan 1 Eylül zammı iptal edildi: 2/10 $ kalıcı fiyat (resmî tablo dipnot 3, 2026-11-05)."
   }
 }

@@ -43,8 +43,9 @@ _LOCK  = threading.Lock()
 # inp/out/cc/cr = fiyatlama için token bileşenleri · mid=dedup için message id
 # sid=oturum (sessionId) · req=requestId · side=alt ajan (isSidechain ya da subagents/ yolu)
 # ver=Claude Code sürümü — limit aralığı dökümü (limitseri.aralik_dokumu) için
-Turn = namedtuple('Turn', 'ms model units raw inp out cc cr mid sid req side ver',
-                  defaults=('', '', False, ''))
+# cc1h=cc'nin 1 saatlik önbelleğe yazılan kısmı (fiyatı 5 dakikalığın üstünde, bkz. pricing)
+Turn = namedtuple('Turn', 'ms model units raw inp out cc cr mid sid req side ver cc1h',
+                  defaults=('', '', False, '', 0))
 
 
 def _dedup_key(t):
@@ -89,7 +90,7 @@ def _scan_turns(since_ms: int):
     if not CLAUDE_PROJECTS_DIR.exists():
         return out
     cutoff_mtime = (since_ms / 1000) - 3600            # biraz pay
-    seen_ids = set()
+    seen = {}                                          # dedup anahtarı → out'taki sıra
 
     def _walk_jsonl(root: Path):
         """Recursively yield .jsonl file paths using os.scandir (stat-cached DirEntry)."""
@@ -117,6 +118,7 @@ def _scan_turns(since_ms: int):
             turns = cached[2]
         else:
             turns = []
+            sira = {}          # aynı dosyada dedup anahtarı → turns'teki sıra
             try:
                 with f.open(encoding='utf-8') as fh:
                     for line in fh:
@@ -141,17 +143,31 @@ def _scan_turns(since_ms: int):
                         out_ = u.get('output_tokens', 0) or 0
                         cc  = u.get('cache_creation_input_tokens', 0) or 0
                         cr  = u.get('cache_read_input_tokens', 0) or 0
+                        cc_bol = u.get('cache_creation')
+                        cc1h = (cc_bol.get('ephemeral_1h_input_tokens', 0) or 0) \
+                            if isinstance(cc_bol, dict) else 0
                         raw = inp + out_ + cc + cr
                         # Ağırlıklı limit birim heuristigi: output 4×, input 1×, cache_write (cc) 1×, cache_read (cr) 0.1×.
                         # Bu ağırlıklar gerçek /usage % ile kalibrasyon dosyasında çapalanır (usage_calib.json).
                         # Sayısal katsayıları değiştirmek kalibrasyon ilişkisini bozar — düzeltmeden önce live veriyle doğrula.
                         units = _model_weight(model) * (out_ * 4 + inp + cc + cr * 0.1)
-                        turns.append(Turn(ms, model, units, raw, inp, out_, cc, cr,
-                                          msg.get('id') or '',
-                                          o.get('sessionId') or '',
-                                          o.get('requestId') or '',
-                                          o.get('isSidechain') is True or alt_ajan_yolu,
-                                          o.get('version') or ''))
+                        t = Turn(ms, model, units, raw, inp, out_, cc, cr,
+                                 msg.get('id') or '',
+                                 o.get('sessionId') or '',
+                                 o.get('requestId') or '',
+                                 o.get('isSidechain') is True or alt_ajan_yolu,
+                                 o.get('version') or '', cc1h)
+                        # Bir yanıt birkaç satıra yazılır; output_tokens son satırda
+                        # tamamlanır (Haiku 5.5'te ilk satır gerçeğin 3,5'te biri, ölçüm
+                        # 2026-11-05). Zaman ilk satırdan kalır, sayılar son satırdan.
+                        dk = _dedup_key(t)
+                        if dk in sira:
+                            i = sira[dk]
+                            turns[i] = t._replace(ms=turns[i].ms)
+                        else:
+                            if dk is not None:
+                                sira[dk] = len(turns)
+                            turns.append(t)
             except OSError:
                 continue
             with _LOCK:
@@ -161,9 +177,13 @@ def _scan_turns(since_ms: int):
                 continue
             key = _dedup_key(t)
             if key is not None:
-                if key in seen_ids:
+                if key in seen:
+                    # Aynı yanıtın başka dosyadaki kopyası (devam ettirilen oturum). Yarım
+                    # kalmış kopya önce taransa da tam olan sayılır.
+                    if t.out > out[seen[key]].out:
+                        out[seen[key]] = t
                     continue
-                seen_ids.add(key)
+                seen[key] = len(out)
             out.append(t)
     return out
 
@@ -537,7 +557,7 @@ def compute_spend(days: int = 30) -> dict:
     tokens_total = {'input': 0, 'output': 0, 'cache_write': 0, 'cache_read': 0}
 
     for t in turns:
-        usd, source = pricing.turn_cost_usd(t.inp, t.out, t.cc, t.cr, t.model)
+        usd, source = pricing.turn_cost_usd(t.inp, t.out, t.cc, t.cr, t.model, cc1h=t.cc1h)
         day_key = datetime.fromtimestamp(t.ms / 1000).strftime('%Y-%m-%d')
         # `unknown` fiyatın sıfır olduğu anlamına gelmez. Bilinen kısmı bir taban
         # (floor) olarak tut; fiyatlanamayan tokenları aşağıda ayrıca yayınla.

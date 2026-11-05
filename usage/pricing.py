@@ -9,8 +9,8 @@ proje kökündeki price_overrides.json kullanılır ve source='estimate' işaret
 Böylece hiçbir maliyet sessizce uydurulmaz — tahmin olan tahmin olarak görünür.
 
 Bir override'ın **son kullanma tarihi** olabilir:
-    "claude-sonnet-5": { ...tanıtım fiyatı..., "until": "2026-08-31",
-                         "then": { ...liste fiyatı... } }
+    "model-x": { ...tanıtım fiyatı..., "until": "2026-08-31",
+                 "then": { ...liste fiyatı... } }
 `until` geçince `then` kendiliğinden devreye girer. Eskiden bu bilgi serbest metin bir
 `_note` alanındaydı ve birinin tarihi hatırlayıp dosyayı elle düzenlemesi gerekiyordu.
 
@@ -69,7 +69,14 @@ def _clean_cost(cost: dict) -> dict:
     # Bazı modellerde cache fiyatı yok — Anthropic oranıyla türet (read≈0.1×input, write≈1.25×input)
     cr = float(cr) if cr is not None else round(inp * 0.1, 4)
     cw = float(cw) if cw is not None else round(inp * 1.25, 4)
-    return {'input': inp, 'output': out, 'cache_read': cr, 'cache_write': cw}
+    clean = {'input': inp, 'output': out, 'cache_read': cr, 'cache_write': cw}
+    tiers = [{**_clean_cost(t), 'over': t['tier']['size']}
+             for t in cost.get('tiers') or ()
+             if isinstance(t, dict) and isinstance(t.get('tier'), dict)
+             and isinstance(t['tier'].get('size'), (int, float))]
+    if tiers:                          # büyükten küçüğe: ilk aşılan eşik geçerlidir
+        clean['tiers'] = sorted(tiers, key=lambda t: t['over'], reverse=True)
+    return clean
 
 
 def _build_catalog() -> dict:
@@ -217,14 +224,25 @@ def resolve_price(model: str, today: date = None):
     return dict(ZERO), 'unknown'
 
 
-def turn_cost_usd(inp: int, out: int, cc: int, cr: int, model: str):
+def turn_cost_usd(inp: int, out: int, cc: int, cr: int, model: str, cc1h: int = 0):
     """Bir turn'ün gerçek $ maliyeti + fiyat kaynağı. Anthropic faturalama modeli:
-       input_tokens=cache'siz girdi · cache_creation=cache_write · cache_read=cache_read · output=output."""
+       input_tokens=cache'siz girdi · cache_creation=cache_write · cache_read=cache_read · output=output.
+
+       cc1h: cc'nin 1 saatlik önbelleğe yazılan kısmı. Katalog yalnız 5 dakikalık yazımı
+       taşıyor (1,25 kat); 1 saatlik yazım her modelde tabanın 2 katı (resmî fiyat tablosu).
+       Prompt uzunluğu katmanı istek başına: girdi + önbellek okuma + önbellek yazma."""
     price, source = resolve_price(model)
+    prompt = inp + cc + cr
+    for tier in price.get('tiers', ()):
+        if prompt > tier['over']:
+            price = tier
+            break
+    cc1h = min(cc1h, cc)
     usd = (
         inp * price['input'] +
         out * price['output'] +
-        cc * price['cache_write'] +
+        (cc - cc1h) * price['cache_write'] +
+        cc1h * price['input'] * 2 +
         cr * price['cache_read']
     ) / 1_000_000.0
     return usd, source

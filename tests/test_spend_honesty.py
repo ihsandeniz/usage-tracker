@@ -54,7 +54,7 @@ class UnknownPricesAreExplicit(unittest.TestCase):
                 ('mystery-model', {'input_tokens': 300, 'output_tokens': 200}),
             ])
 
-            def fake_cost(_inp, _out, _cc, _cr, model):
+            def fake_cost(_inp, _out, _cc, _cr, model, cc1h=0):
                 # A non-zero sentinel proves engine excludes an unknown source
                 # instead of relying on pricing.py's current zero placeholder.
                 return (2.0, 'official') if model == 'priced-model' else (9.0, 'unknown')
