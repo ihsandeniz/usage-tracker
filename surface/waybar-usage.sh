@@ -155,15 +155,17 @@ out="$(echo "$json" | jq -c --arg pid "$PROVIDER" '
   | (([.providers[] | select(.id == $pid)][0]) // $claude) as $lead
   | ($lead.limits.session.pct) as $sess_raw
   | ($lead.limits.weekly.pct)  as $week_raw
-  | ($sess_raw // 0) as $sess_pct
-  | ($week_raw // 0) as $week_pct
-  | ([$sess_pct, $week_pct] | max) as $hi_pct
-  | (if ($sess_raw == null and $week_raw == null) then "off"
+  # Renk ve yuzde telefon rozetiyle (rozet-sunucu.py) AYNI kural: Claude + Codex, bayat bar
+  # sayilmaz. Metin kendi kartini gosterir. Acikca baska saglayici secen rozet yalniz kendi kartina bakar.
+  | ([.providers[] | select(.id as $i | if $lead.id == "claude" then ($i == "claude" or $i == "codex") else $i == $lead.id end)
+      | .limits.session, .limits.weekly | select(. != null and .pct != null and (.stale // false) != true) | .pct]) as $taze
+  | (($taze | max) // 0) as $hi_pct
+  | (if ($taze | length) == 0 then "off"
      elif $hi_pct >= $th.crit then "crit" elif $hi_pct >= $th.warn then "warn" else "ok" end) as $class
 
   # Claude — bar + reset countdown + forecast
   | (
-      # DIKKAT: $sess_pct/$week_pct artik MANSETI suren karta ait ($lead). Claude bolumu
+      # DIKKAT: $sess_raw/$week_raw MANSETI suren karta ait ($lead). Claude bolumu
       # kendi sayilarini okumak zorunda — aksi halde `--provider codex`, Claude basliginin
       # altina Codex yuzdesini yazardi.
       "<b>Claude</b>"
