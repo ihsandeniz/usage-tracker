@@ -488,6 +488,9 @@ class StalenessReachesEverySurface(unittest.TestCase):
         harness = '''
 const fs = require('fs');
 const src = fs.readFileSync(process.argv[2], 'utf8');
+eval(src.match(/^const I18N = \\{[\\s\\S]*?^\\};/m)[0].replace('const I18N', 'globalThis.I18N'));
+globalThis.LANG = 'tr';
+globalThis.t = (k) => I18N[LANG]?.[k] ?? I18N.en?.[k] ?? k;
 for (const n of ['fmtAge', 'liveFlag']) {
   const m = src.match(new RegExp('function ' + n + '\\\\([\\\\s\\\\S]*?\\\\n}', 'm'));
   if (!m) { console.error('MISSING_FUNCTION:' + n); process.exit(2); }

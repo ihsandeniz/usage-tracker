@@ -425,6 +425,7 @@ def collect(days: int = 30) -> dict:
     # `warnings` onun YANINDA duran kısa satırlardır: bir kart uyarıyı okunabilir
     # göstermek zorunda, tek paragrafa yığılmış üç uyarı ekranda hiçbiri kadar okunur.
     warnings = []
+    warning_codes = []                 # panel kendi dilinden yazsın diye: {code, n}
     limit_note = ''
     if limits:
         live_bars = [b for b in limits.values() if b and b.get('pct') is not None]
@@ -438,12 +439,15 @@ def collect(days: int = 30) -> dict:
                            '"bilinmiyor"; 0 yazmak yeni pencereyi ölçmüş gibi olurdu.')
             warnings.append('Bir limit penceresi son ölçümden sonra sıfırlandı — o bar '
                             '"bilinmiyor", sıfır değil.')
+            warning_codes.append({'code': 'windowReset', 'n': 0})
     if truncated_reason == 'files':
         warnings.append(f'Toplamda en yeni {MAX_FILES} oturum var, daha eskileri sayılmadı. '
                         f'Limit yüzdesi etkilenmez.')
+        warning_codes.append({'code': 'filesCap', 'n': MAX_FILES})
     elif truncated_reason == 'lines':
         warnings.append(f'En az bir oturum günlüğü {MAX_LINES_PER_FILE} satırda kesildi — '
                         f'token/$ toplamı EKSİK.')
+        warning_codes.append({'code': 'linesCap', 'n': MAX_LINES_PER_FILE})
 
     return {
         'id': PROVIDER_ID, 'name': PROVIDER_NAME, 'kind': 'tokens',
@@ -456,6 +460,7 @@ def collect(days: int = 30) -> dict:
         'limits': limits,
         'plan': plan_type,
         'warnings': warnings,
+        'warningCodes': warning_codes,
         'truncated': truncated_reason is not None, 'truncatedReason': truncated_reason,
         'currency': 'USD', 'auth': auth_mode, 'windowDays': days, 'sessions': files,
         'tokens': {'input': tot['input'], 'cached_input': tot['cached_input'],

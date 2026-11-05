@@ -127,6 +127,12 @@
       "truncatedReason": "string",
       "updated": "string",
       "usdSource": "string",
+      "warningCodes": [
+        {
+          "code": "string",
+          "n": "number"
+        }
+      ],
       "warnings": [
         "string"
       ],

@@ -136,6 +136,7 @@ table.models{width:100%;border-collapse:collapse;font-size:13px}
 .models tr:last-child td{border-bottom:none}
 .models .r{text-align:right;font-variant-numeric:tabular-nums}
 .models .m-name{font-weight:600}
+.models .m-tok{white-space:nowrap}
 .models .usd{color:var(--gold);font-weight:700}
 .src{font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid var(--line2)}
 .src.catalog{color:var(--green);border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.07)}
@@ -188,8 +189,8 @@ body.widget .lk{padding:10px 12px}
 .calib{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
 .calib summary{cursor:pointer;font-size:13px;color:var(--cyan);font-weight:600}
 .calib summary:hover{text-shadow:0 0 12px rgba(34,211,238,.4)}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
-.form-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}
+.form-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);min-width:0}
 .form-grid input{background:var(--card2);border:1px solid var(--line2);color:var(--txt);
   border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit}
 .form-grid input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,.12)}
@@ -528,3 +529,24 @@ body.widget .glance-strip,body.glance .glance-strip{display:none}
 .ctx-sub ul{list-style:none;margin:4px 0 6px 14px;padding:0;max-height:180px;overflow:auto}
 .ctx-sub li{display:flex;justify-content:space-between;gap:10px;color:var(--muted2);font-variant-numeric:tabular-nums}
 .ctx-li-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── telefon: harcama tablosu ve üst şerit ── */
+@media(max-width:640px) {
+  .form-grid { grid-template-columns:minmax(0,1fr); }
+  .topbar { padding:12px 16px; gap:8px; }
+  .brand { min-width:0; gap:8px; }
+  .brand h1 { font-size:16px; white-space:nowrap; }
+  .brand .tag { display:none; }
+  #updated { display:none; }
+  /* Satır başına iki kat: ad + tutar, altında jeton. Kaynak sütunu yerine başlıktaki rozet yeter. */
+  .models thead { display:none; }
+  .models tr { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:12px; align-items:start;
+               padding:8px 0; border-bottom:1px solid rgba(30,43,61,.5); }
+  .models tr:last-child { border-bottom:none; }
+  .models td { padding:0; border-bottom:none; }
+  .models td:nth-child(2) { display:none; }
+  .models .m-full { overflow-wrap:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .models .m-tok { grid-column:1 / -1; grid-row:2; text-align:left; white-space:nowrap; font-size:12px;
+                   color:var(--muted); padding-top:2px; }
+  .models .usd { grid-column:2; grid-row:1; }
+}

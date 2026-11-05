@@ -299,6 +299,7 @@ def compute(breakdown=True):
             'breakdown': bd,
             'breakdown_age_sec': int(time.time() - entry['at']) if entry else None,
             'breakdown_error': entry.get('error') if entry else None,
+            'breakdown_off': not breakdown,
         })
         if bd and total:
             # Categories were measured at an earlier total; the drift since then is all

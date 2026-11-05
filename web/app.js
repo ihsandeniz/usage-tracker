@@ -12,6 +12,22 @@ const I18N = {
     daily: 'Daily spending (30d)', max: 'max', dailyLimit: 'Daily limit',
     overview: 'Overview', provider: 'provider', modelCount: 'Installed model', used: 'Used',
     credit: 'Remaining credit', session: 'session', unreachable: 'unreachable',
+    flagStale: '⚠ stale · last live read', flagAgo: 'ago', flagFailed: 'failed', flagLive: '🟢 live · real',
+    flagLimited: '⏳ live limit (429) → fell back to estimate', flagEstimate: '≈ estimated',
+    flagEstimateErr: '≈ estimated (live unavailable)', limSession: 'Session (5h)', limWeekly: 'Weekly (all)',
+    limWeeklyModel: 'Weekly model', stOffline: 'off', scanPartial: 'Scan incomplete (truncated)',
+    longtrail: 'Providers with no data: {n}',
+    priceFull: '✓ full price', priceEst: '≈ {n} models estimated', gotoCard: 'go to card', monthly: 'Monthly',
+    remaining: 'Remaining', resetLabel: 'Resets', activeWord: 'active', noProviders: 'no providers',
+    bQuota: 'quota', bLocal: 'local', bLocalLog: 'local log', bSub: 'subscription', saving: 'saving…',
+    notCalibrated: 'not calibrated', viewLoadFail: 'Could not load the view settings', savedOk: '✓ saved',
+    noConfigured: 'No providers configured.', costWord: 'cost',
+    spendNote: '1M-context (opus[1m]) premium and batch/service_tier discounts cannot be separated; estimated models can be corrected in price_overrides.json; tokens with an unknown price are left out of the $ total.',
+    calibWhen: 'used when live limits are unavailable',
+    calibNote: "Limits normally come live from <strong>Anthropic's own <code>/api/oauth/usage</code></strong> endpoint (🟢 badge). Only if that fails (429 / Claude Code closed / token expired) does this manual anchor take over: run <code>/usage</code> and enter the percentages and reset times.",
+    wFilesCap: 'Totals cover the newest {n} sessions; older ones are not counted. Limit percentages are not affected.',
+    wLinesCap: 'At least one session log was cut at {n} lines; token/$ totals are incomplete.',
+    wWindowReset: 'A limit window reset after the last reading: that bar is unknown, not zero.',
     noData: 'no data', offline: 'service offline', uncalib: 'not calibrated',
     units: 'units', calibrated: '✓ calibrated', updated: 'updated', noModelData: 'no data',
     source: 'Source', refresh: 'Refresh', otherProviders: 'Other Providers',
@@ -69,6 +85,22 @@ const I18N = {
     overview: 'Tek Bakış',
     provider: 'kaynak', modelCount: 'Kurulu model', used: 'Kullanılan',
     credit: 'Kalan kredi', session: 'oturum', unreachable: 'erişilemedi',
+    flagStale: '⚠ bayat · son canlı okuma', flagAgo: 'önce', flagFailed: 'başarısız', flagLive: '🟢 canlı · gerçek',
+    flagLimited: '⏳ canlı limit (429) → tahmine düşüldü', flagEstimate: '≈ tahmini',
+    flagEstimateErr: '≈ tahmini (canlı: {e})', limSession: 'Oturum (5 sa)', limWeekly: 'Haftalık (tüm)',
+    limWeeklyModel: 'Haftalık model', stOffline: 'kapalı', scanPartial: 'Tarama eksik (truncated)',
+    longtrail: '{n} sağlayıcı veri döndürmedi',
+    priceFull: '✓ tam fiyat', priceEst: '≈ {n} model tahmini', gotoCard: 'karta git', monthly: 'Aylık',
+    remaining: 'Kalan', resetLabel: 'Sıfırlanma', activeWord: 'aktif', noProviders: 'sağlayıcı yok',
+    bQuota: 'kota', bLocal: 'yerel', bLocalLog: 'yerel-log', bSub: 'abonelik', saving: 'kaydediliyor…',
+    notCalibrated: 'kalibrasyon yapılmamış', viewLoadFail: 'Yapılandırma yüklenemedi', savedOk: '✓ kaydedildi',
+    noConfigured: 'Yapılandırılmış sağlayıcı yok.', costWord: 'maliyet',
+    spendNote: '1M-context (opus[1m]) premium ve batch/service_tier indirimi ayrıştırılmaz; estimate modelleri price_overrides.json ile düzeltilebilir; unknown fiyatlı tokenlar $ toplamına dahil edilmez.',
+    calibWhen: 'canlı limit alınamazsa',
+    calibNote: "Normalde limitler <strong>Anthropic'in kendi <code>/api/oauth/usage</code></strong> ucundan canlı+gerçek gelir (🟢 rozeti). Yalnızca o alınamazsa (429 / Claude Code kapalı / token süresi dolmuş) bu manuel çapa devreye girer: <code>/usage</code> çalıştır, yüzdeleri ve reset saatlerini gir.",
+    wFilesCap: 'Toplamda en yeni {n} oturum var, daha eskileri sayılmadı. Limit yüzdesi etkilenmez.',
+    wLinesCap: 'En az bir oturum günlüğü {n} satırda kesildi; token/$ toplamı eksik.',
+    wWindowReset: 'Bir limit penceresi son ölçümden sonra sıfırlandı: o bar bilinmiyor, sıfır değil.',
     noData: 'kaynak yok', offline: 'servis kapalı', uncalib: 'kalibre değil',
     units: 'birim', calibrated: '✓ kalibre edildi', updated: 'güncellendi', noModelData: 'veri yok',
     source: 'Kaynak', refresh: 'Yenile', otherProviders: 'Diğer Sağlayıcılar',
@@ -189,8 +221,8 @@ function renderSpend(s) {
   renderConverted(s);
 
   const flag = $('price-flag');
-  if (s.priceComplete) { flag.textContent = '✓ tam fiyat'; flag.className = 'pill good'; }
-  else { flag.textContent = '≈ ' + s.estimatedModels.length + ' model tahmini'; flag.className = 'pill warn'; }
+  if (s.priceComplete) { flag.textContent = t('priceFull'); flag.className = 'pill good'; }
+  else { flag.textContent = t('priceEst').replace('{n}', s.estimatedModels.length); flag.className = 'pill warn'; }
 
   // sparkline
   const days = s.byDay || [];
@@ -207,14 +239,14 @@ function renderSpend(s) {
   $('model-rows').innerHTML = (s.byModel || []).map(m => {
     const tok = m.tokens || {};
     return `<tr>
-      <td class="m-name">${esc(m.short || m.model)}<div class="muted">${esc(m.model)}</div></td>
+      <td class="m-name">${esc(m.short || m.model)}<div class="muted m-full">${esc(m.model)}</div></td>
       <td><span class="src ${m.source}">${esc(m.source)}</span></td>
-      <td class="r">${fmtTok(tok.output)} / ${fmtTok(tok.input)} / ${fmtTok((tok.cache_read || 0) + (tok.cache_write || 0))}</td>
+      <td class="r m-tok">${fmtTok(tok.output)} / ${fmtTok(tok.input)} / ${fmtTok((tok.cache_read || 0) + (tok.cache_write || 0))}</td>
       <td class="r usd">${fmtUsd(m.usd)}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="4" class="muted">${t('noModelData')}</td></tr>`;
 
-  $('spend-note').textContent = s.note || '';
+  $('spend-note').textContent = s.note ? t('spendNote') : '';
 }
 
 // ── LİMİTLER ─────────────────────────────────────────────
@@ -280,11 +312,15 @@ function lbar(name, sub, b, th) {
     ${forecast ? `<div class="lbar-forecast${forecastClass}">${esc(forecast)}</div>` : ''}
   </div>`;
 }
+// Canlı uç model başına yüzde vermiyor: ölçülmeyen satır yalnız boş bir bar gösterirdi.
+function modelSatiriVar(m) {
+  return !!m && m.pct != null;
+}
 function renderLimits(u) {
   const th = u.thresholds || { warn: 75, crit: 90 };
   GLOBAL_THRESHOLDS = th;  // Sunucu eşiklerini global olarak kaydet
-  let html = lbar('Oturum (5s)', '', u.session, th) + lbar('Haftalık (tüm)', '', u.weeklyAll, th);
-  if (u.weeklyModel) html += lbar('Haftalık model', u.weeklyModel.name, u.weeklyModel, th);
+  let html = lbar(t('limSession'), '', u.session, th) + lbar(t('limWeekly'), '', u.weeklyAll, th);
+  if (modelSatiriVar(u.weeklyModel)) html += lbar(t('limWeeklyModel'), u.weeklyModel.name, u.weeklyModel, th);
   $('limit-bars').innerHTML = html;
 
   // kaynak rozeti: canlı gerçek (Anthropic) > tahmini (kalibrasyon/ağırlık)
@@ -298,9 +334,9 @@ function renderLimits(u) {
 function fmtAge(sec) {
   if (typeof sec !== 'number' || !isFinite(sec) || sec <= 0) return '';
   const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
-  if (d) return d + 'g' + h + 's';
-  if (h) return h + 's' + m + 'dk';
-  return m + 'dk';
+  if (d) return d + t('uDay') + h + t('uHour');
+  if (h) return h + t('uHour') + m + t('uMin');
+  return m + t('uMin');
 }
 
 // Kaynak rozeti saf fonksiyon: ekrandaki tek cümle, ölçülebilir olsun diye ayrıldı.
@@ -311,13 +347,13 @@ function liveFlag(u) {
   const lv = (u && u.live) || {};
   if (lv.stale) {
     const age = fmtAge(lv.ageSec);
-    return { text: '⚠ bayat · son canlı okuma' + (age ? ' ' + age + ' önce' : ' başarısız'),
+    return { text: t('flagStale') + ' ' + (age ? age + ' ' + t('flagAgo') : t('flagFailed')),
              cls: 'pill warn' };
   }
-  if (u && u.source === 'live') return { text: '🟢 canlı · gerçek', cls: 'pill good' };
-  if (lv.rateLimited) return { text: '⏳ canlı limit (429) → tahmine düşüldü', cls: 'pill warn' };
-  if (lv.error) return { text: '≈ tahmini (canlı: ' + lv.error + ')', cls: 'pill warn' };
-  return { text: '≈ tahmini', cls: 'pill warn' };
+  if (u && u.source === 'live') return { text: t('flagLive'), cls: 'pill good' };
+  if (lv.rateLimited) return { text: t('flagLimited'), cls: 'pill warn' };
+  if (lv.error) return { text: t('flagEstimateErr').replace('{e}', lv.error), cls: 'pill warn' };
+  return { text: t('flagEstimate'), cls: 'pill warn' };
 }
 
 function esc(s) { return String(s ?? '').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
@@ -338,7 +374,7 @@ function gchip(name, dotCls, valText, valCls, pct, target) {
   const w = pct == null ? 0 : Math.min(100, pct);
   const bar = pct == null ? ''
     : `<div class="gtrack"><div class="gfill ${pctCls(pct)}" style="width:${w}%"></div></div>`;
-  return `<button class="gchip" data-target="${esc(target)}" title="${esc(name)} → karta git">
+  return `<button class="gchip" data-target="${esc(target)}" title="${esc(name)} → ${t('gotoCard')}">
     <div class="gchip-top"><span class="pdot ${dotCls}"></span><span class="gname">${esc(name)}</span>
       <span class="gval ${valCls}">${esc(valText)}</span></div>${bar}</button>`;
 }
@@ -365,10 +401,10 @@ function renderGlanceStrip(usage, providers) {
       else if (c.spend && c.spend.today != null) { val = fmtUsd(c.spend.today); vcls = 'spend'; }
       else if (c.balance) { val = fmtUsd(c.balance.remaining); vcls = 'spend'; }
     } else if (c.kind === 'tokens') {
-      if (c.status === 'offline') { val = 'kapalı'; vcls = 'muted'; }
+      if (c.status === 'offline') { val = t('stOffline'); vcls = 'muted'; }
       else { val = (c.total && c.total.usd != null) ? fmtUsd(c.total.usd) : fmtTok((c.tokens || {}).total); vcls = 'spend'; }
     } else if (c.kind === 'local') {
-      if (c.status === 'offline') { val = 'kapalı'; vcls = 'muted'; }
+      if (c.status === 'offline') { val = t('stOffline'); vcls = 'muted'; }
       else { val = (c.modelCount || 0) + ' model'; vcls = 'ok'; }
     } else if (c.kind === 'quota') {
       if (c.quota && c.quota.pct != null) { pct = c.quota.pct; dot = pctCls(pct); vcls = pctCls(pct); val = Math.round(pct) + '%'; }
@@ -493,6 +529,16 @@ function decorateBar(b) {
   return { ...b, subLeft: left, subRight: right };
 }
 
+// Sunucu metni Türkçedir; kod varsa panel kendi dilinden yazar, yoksa metni olduğu gibi gösterir.
+function kartUyarilari(c) {
+  const anahtar = { filesCap: 'wFilesCap', linesCap: 'wLinesCap', windowReset: 'wWindowReset' };
+  const kodlar = Array.isArray(c.warningCodes) ? c.warningCodes : [];
+  if (kodlar.length && kodlar.every(k => anahtar[k.code])) {
+    return kodlar.map(k => t(anahtar[k.code]).replace('{n}', k.n));
+  }
+  return Array.isArray(c.warnings) ? c.warnings.filter(Boolean) : [];
+}
+
 function renderProviderCard(c) {
   if (c.status === 'error')
     return provShell(c, `<div class="prov-err">⚠ ${esc(c.error || t('unreachable'))}</div>`);
@@ -503,11 +549,11 @@ function renderProviderCard(c) {
   // değildir — uyarı artık gövdeyi bastırmıyor, başına geçiyor.
   // Kısa `warnings` satırları varsa onlar basılır; uzun `note` düzyazısı kartın yarısını
   // kaplayıp altındaki sayıları ekranın dışına itiyordu.
-  const warns = Array.isArray(c.warnings) ? c.warnings.filter(Boolean) : [];
+  const warns = kartUyarilari(c);
   const notice = warns.length
     ? warns.map(w => `<div class="prov-note warn">⚠ ${esc(w)}</div>`).join('')
     : (c.status === 'partial'
-        ? `<div class="prov-note warn">⚠ ${esc(c.note || 'Tarama eksik (truncated)')}</div>` : '');
+        ? `<div class="prov-note warn">⚠ ${esc(c.note || t('scanPartial'))}</div>` : '');
   return provShell(c, notice + provLimits(c) + providerBody(c));
 }
 
@@ -533,7 +579,7 @@ function providerBody(c) {
     const srcCls = c.usdSource === 'catalog' ? 'catalog' : 'estimate';
     return `<div class="prov-stats">
       <div><span class="pl">${c.windowDays}g token</span><b>${fmtTok(tk.total)}</b></div>
-      <div><span class="pl">≈ maliyet <span class="src ${srcCls}">${esc(c.usdSource)}</span></span><b class="gold">${fmtUsd(tot.usd, c.currency)}</b></div>
+      <div><span class="pl">≈ ${t('costWord')} <span class="src ${srcCls}">${esc(c.usdSource)}</span></span><b class="gold">${fmtUsd(tot.usd, c.currency)}</b></div>
       <div><span class="pl">${t('today')}</span><b>${fmtTok(td.tokens)} · ${fmtUsd(td.usd, c.currency)}</b></div>
     </div>
     ${provSpark(c.byDay, true)}
@@ -558,11 +604,11 @@ function providerBody(c) {
     const unit = q.unit || t('units');
     let body = `<div class="prov-stats">
       <div><span class="pl">${t('used')}</span><b>${fmtCount(q.used)}</b></div>
-      <div><span class="pl">Kalan</span><b class="gold">${fmtCount(q.remaining)}</b></div>
+      <div><span class="pl">${t('remaining')}</span><b class="gold">${fmtCount(q.remaining)}</b></div>
     </div>
-    <div class="prov-limit"><div class="pl-row"><span>Aylık ${esc(unit)} (${q.pct == null ? '—' : q.pct + '%'})</span>
+    <div class="prov-limit"><div class="pl-row"><span>${t('monthly')} ${esc(unit)} (${q.pct == null ? '—' : q.pct + '%'})</span>
       <span>${fmtCount(q.used)} / ${fmtCount(q.limit)}</span></div>${provMiniBar(q.pct, cls)}</div>`;
-    if (q.reset) body += `<div class="pl-row muted"><span>Sıfırlanma</span><span>${fmtResetUnix(q.reset)}</span></div>`;
+    if (q.reset) body += `<div class="pl-row muted"><span>${t('resetLabel')}</span><span>${fmtResetUnix(q.reset)}</span></div>`;
     return body;
   }
   return '';
@@ -580,7 +626,7 @@ function renderProviders(list) {
   // Bayrak güncelle
   const flag = $('prov-flag');
   const okCount = aktifSayisi(list);
-  flag.textContent = list.length ? `${okCount}/${list.length} aktif` : 'sağlayıcı yok';
+  flag.textContent = list.length ? `${okCount}/${list.length} ${t('activeWord')}` : t('noProviders');
   flag.className = 'pill' + (okCount ? ' good' : '');
 
   // Filtrele ve render et
@@ -588,9 +634,9 @@ function renderProviders(list) {
 }
 function provShell(c, body) {
   const dot = c.status === 'ok' ? 'ok' : c.status === 'offline' ? 'off' : 'err';
-  const badge = c.kind === 'quota' ? (c.tier || 'kota')
-    : c.kind === 'local' ? 'yerel'
-    : c.kind === 'tokens' ? (c.auth === 'yerel-log' ? 'yerel-log' : (c.plan ? `abonelik · ${c.plan}` : 'abonelik'))
+  const badge = c.kind === 'quota' ? (c.tier || t('bQuota'))
+    : c.kind === 'local' ? t('bLocal')
+    : c.kind === 'tokens' ? (c.auth === 'yerel-log' ? t('bLocalLog') : (c.plan ? `${t('bSub')} · ${c.plan}` : t('bSub')))
     : (c.tier || '');
   return `<div class="prov" id="prov-${esc(c.id)}">
     <div class="prov-head"><span class="pdot ${dot}"></span><span class="prov-name">${esc(c.name)}</span>
@@ -611,7 +657,7 @@ async function submitCalib() {
     weeklyModelPct: parseFloat($('c-model-pct').value) || 0,
   };
   const msg = $('calib-msg');
-  msg.textContent = 'kaydediliyor…';
+  msg.textContent = t('saving');
   try {
     const r = await getJSON('/api/calibrate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -642,6 +688,10 @@ function ctxList(title, items, key) {
   }).join('');
   return `<details class="ctx-sub"><summary>${esc(title)} <small>${items.length} · ${ctxTok(total)}</small></summary><ul>${rows}</ul></details>`;
 }
+function ctxKirilimMetni(s) {
+  return s.total && !s.breakdown_off ? t('ctxMeasuring') : '';
+}
+
 function renderContext(d) {
   const list = (d && d.sessions) || [];
   $('ctx-count').textContent = `${list.length} ${t('ctxSessions')}`;
@@ -654,7 +704,7 @@ function renderContext(d) {
       || (s.total && s.window ? `<i style="width:${(s.total * 100 / win).toFixed(2)}%;background:var(--cyan-dim)"></i>` : '');
     const mark = s.compact_at ? `<b class="ctx-mark" style="left:${(s.compact_at * 100 / win).toFixed(2)}%" title="${t('ctxCompact')} ${ctxTok(s.compact_at)}"></b>` : '';
     // Pencere boyu ölçülmeden yüzde verilmez: 200k/1M tahmini %19'u %95 gösteriyordu.
-    const pctTxt = !s.total ? t('ctxNew') : !s.window ? `${ctxTok(s.total)} · ${t('ctxMeasuring')}`
+    const pctTxt = !s.total ? t('ctxNew') : !s.window ? ctxTok(s.total) + (s.breakdown_off ? '' : ` · ${t('ctxMeasuring')}`)
       : `${ctxTok(s.total)} / ${ctxTok(win)} (${Math.round(s.percent)}%)`;
     const toCompact = s.compact_at && s.total ? s.total / s.compact_at * 100 : null;
     const cls = toCompact == null ? 'none' : toCompact >= 90 ? 'crit' : toCompact >= 70 ? 'warn' : 'ok';
@@ -666,7 +716,7 @@ function renderContext(d) {
         ${ctxList(t('ctxMemFiles'), bd.memory_files, 'path')}${ctxList(t('ctxSkills'), bd.skills)}
         ${ctxList(t('ctxAgents'), bd.agents)}${ctxList(t('ctxMcp'), bd.mcp_tools)}
         <p class="note">${t('ctxAge')}: ${s.breakdown_age_sec < 60 ? t('ctxJustNow') : fmtAge(s.breakdown_age_sec) + ' ' + t('ago')}${s.breakdown_error ? ' · ⚠ ' + esc(s.breakdown_error) : ''}</p>`
-      : `<p class="muted">${s.total ? t('ctxMeasuring') : ''}</p>`;
+      : `<p class="muted">${ctxKirilimMetni(s)}</p>`;
     const status = s.status === 'busy' ? `<span class="ctx-dot busy"></span>${t('ctxBusy')}` : `<span class="ctx-dot"></span>${t('ctxIdle')}`;
     return `<details class="ctx-row" data-sid="${esc(s.session_id)}"${CTX_OPEN.has(s.session_id) ? ' open' : ''}>
       <summary><div class="lbar-head"><span class="lbar-name">${esc(s.name || s.session_id.slice(0, 8))} <small>${status} · ${esc(s.model || '')}</small></span>
@@ -787,7 +837,7 @@ function renderGlance(spend, usage) {
   // Find the highest limit percentage
   const limits = [usage.session, usage.weeklyAll, usage.weeklyModel].filter(l => l && l.pct != null);
   if (!limits.length) {
-    $('glance-content').innerHTML = '<div class="glance-empty">⚠ kalibrasyon yapılmamış</div>';
+    $('glance-content').innerHTML = '<div class="glance-empty">⚠ ' + t('notCalibrated') + '</div>';
     return;
   }
 
@@ -802,8 +852,8 @@ function renderGlance(spend, usage) {
   // Determine which limit name
   let limitName = 'Limit';
   if (maxLimit === usage.session) limitName = 'Oturum (5s)';
-  else if (maxLimit === usage.weeklyAll) limitName = 'Haftalık (tüm)';
-  else if (maxLimit === usage.weeklyModel) limitName = `Haftalık (${maxLimit.name || 'model'})`;
+  else if (maxLimit === usage.weeklyAll) limitName = t('limWeekly');
+  else if (maxLimit === usage.weeklyModel) limitName = `${t('limWeeklyModel')} (${maxLimit.name || 'model'})`;
 
   // Reset countdown
   const resetSec = maxLimit.resetInSec ?? 0;
@@ -942,7 +992,7 @@ async function loadViewConfig() {
     renderViewProviders(available || [], hiddenProviders);
   } catch (e) {
     console.error('loadViewConfig failed:', e);
-    $('view-providers').innerHTML = '<div class="muted">Yapılandırma yüklenemedi</div>';
+    $('view-providers').innerHTML = `<div class="muted">${t('viewLoadFail')}</div>`;
   }
 }
 
@@ -962,7 +1012,7 @@ function renderViewProviders(available, hidden) {
       <span>${esc(prov.name)}${locked ? ' 🔒' : ''}</span>
     </label>`;
   }).join('');
-  $('view-providers').innerHTML = list || '<div class="muted">Sağlayıcı yok</div>';
+  $('view-providers').innerHTML = list || `<div class="muted">${t('noProviders')}</div>`;
 
   // Add event listeners to checkboxes
   document.querySelectorAll('#view-providers input[type="checkbox"]').forEach(cb => {
@@ -979,7 +1029,7 @@ async function submitViewConfig() {
     .filter(cb => !cb.checked)
     .map(cb => cb.getAttribute('data-provider'));
 
-  msg.textContent = 'kaydediliyor…';
+  msg.textContent = t('saving');
   msg.className = 'pill muted';
 
   try {
@@ -989,7 +1039,7 @@ async function submitViewConfig() {
       body: JSON.stringify({ hidden_providers: hiddenProviders }),
     });
     if (r.ok) {
-      msg.textContent = '✓ kaydedildi';
+      msg.textContent = t('savedOk');
       msg.className = 'pill good';
       setTimeout(() => {
         msg.textContent = '—';
@@ -1044,7 +1094,7 @@ function updateProviderDisplay() {
   // Ana ızgarayı render et
   const mainHtml = main.length
     ? main.map(c => renderProviderCard(c)).join('')
-    : '<div class="muted" style="grid-column:1/-1;text-align:center;padding:20px;">Yapılandırılmış sağlayıcı yok.</div>';
+    : `<div class="muted" style="grid-column:1/-1;text-align:center;padding:20px;">${t('noConfigured')}</div>`;
   $('provider-cards').innerHTML = mainHtml;
 
   // Uzun kuyruk
@@ -1053,7 +1103,7 @@ function updateProviderDisplay() {
   if (longtrail.length) {
     ltDetails.style.display = 'block';
     const n = longtrail.length;
-    ltDetails.querySelector('summary').textContent = `${n} sağlayıcı veri döndürmedi`;
+    ltDetails.querySelector('summary').textContent = t('longtrail').replace('{n}', n);
     ltCards.innerHTML = longtrail.map(c => renderProviderCard(c)).join('');
   } else {
     ltDetails.style.display = 'none';
@@ -1113,6 +1163,7 @@ if (langBtn) {
     localStorage.setItem('ut_lang_v1', LANG);
     updateI18n();
     refresh();
+    loadSettings();                    // anahtar satırları yalnız burada çizilir
   });
 }
 

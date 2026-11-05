@@ -66,8 +66,8 @@
     <div id="limit-bars" aria-live="polite"></div>
     <div id="limit-kutu" aria-live="polite"></div>
     <details class="calib">
-      <summary><span data-i18n="calibration">Kalibrasyon (yedek)</span> — canlı limit alınamazsa</summary>
-      <p class="note">Normalde limitler <strong>Anthropic'in kendi <code>/api/oauth/usage</code></strong> ucundan canlı+gerçek gelir (🟢 rozeti). Yalnızca o alınamazsa (429 / Claude Code kapalı / token süresi dolmuş) bu manuel çapa devreye girer: <code>/usage</code> çalıştır, yüzdeleri ve reset saatlerini gir.</p>
+      <summary><span data-i18n="calibration">Kalibrasyon (yedek)</span> — <span data-i18n="calibWhen">canlı limit alınamazsa</span></summary>
+      <p class="note" data-i18n-html="calibNote"></p>
       <div class="form-grid">
         <label><span data-i18n="cSessPct">Oturum %</span><input type="number" id="c-sess-pct" min="0" max="100" step="0.1" placeholder="ör. 62" data-i18n-ph="phPct62"></label>
         <label><span data-i18n="cSessReset">Oturum reset (saat:dk)</span><input type="time" id="c-sess-reset"></label>
