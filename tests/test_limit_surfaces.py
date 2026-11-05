@@ -162,7 +162,7 @@ class PanelFeeders(unittest.TestCase):
         self.assertEqual(set(self.FORMATS), set(cli.TEXT_FEEDERS))
 
     def test_every_feeder_shows_the_percentage(self):
-        wire = self._wire()
+        wire = make_wire(62.5, 10.0)      # Codex'siz: Codex daha yüksekse rozet onu gösterir (Y5)
         for fmt in self.FORMATS:
             with self.subTest(fmt=fmt):
                 self.assertIn('62.5%', cli.TEXT_FEEDERS[fmt](wire, 'local', 'claude'))
@@ -185,7 +185,7 @@ class PanelFeeders(unittest.TestCase):
 
     def test_colour_follows_the_servers_thresholds_not_a_constant(self):
         """The same 62.5 % is 'ok' on a default server and 'crit' on one configured at 60."""
-        default = cli.render_polybar(self._wire(), 'local', 'claude')
+        default = cli.render_polybar(make_wire(62.5, 10.0), 'local', 'claude')
         strict = cli.render_polybar(
             make_wire(62.5, 10.0, thresholds={'warn': 50, 'crit': 60}), 'local', 'claude')
         self.assertIn(cli.LEVEL_COLOR['ok'], default)
@@ -242,7 +242,7 @@ class PanelFeeders(unittest.TestCase):
     def test_waybar_still_answers_the_same_shape(self):
         """The JSON feeder was refactored onto the shared `_badge`; its contract did not
         change and nothing outside this repo should have to notice the refactor."""
-        badge = cli.render_waybar(self._wire(), 'local', 'claude')
+        badge = cli.render_waybar(make_wire(62.5, 10.0), 'local', 'claude')
         self.assertEqual({'text', 'tooltip', 'class', 'percentage'}, set(badge))
         self.assertEqual('ok', badge['class'])
         self.assertEqual(62, badge['percentage'])

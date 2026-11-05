@@ -284,10 +284,10 @@ class ForecastLineIsHonest(unittest.TestCase):
         return b
 
     def test_two_days_reads_as_days_not_48_hours(self):
-        self.assertEqual(self.lines(self.bar(48.75)), ['2g 0s'])
+        self.assertEqual(self.lines(self.bar(48.75)), ['2g 0sa'])
 
     def test_short_eta_reads_in_hours_and_minutes(self):
-        self.assertEqual(self.lines(self.bar(2.5)), ['2s 30dk'])
+        self.assertEqual(self.lines(self.bar(2.5)), ['2sa 30dk'])
 
     def test_no_forecast_means_no_line(self):
         none = {'willExceed': False, 'etaMs': None, 'etaText': None}

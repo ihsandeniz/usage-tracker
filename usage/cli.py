@@ -523,11 +523,20 @@ def _badge(wire, source, provider='claude') -> dict:
                 'color': LEVEL_COLOR['unknown'], 'css': 'off',
                 'tooltip': f'usage-tracker offline ({DEFAULT_BASE})', 'offline': True}
     verdict = evaluate(wire, provider=provider)
-    level = verdict['level']
+    level, pct = verdict['level'], verdict['pct']
+    if provider == 'claude':
+        # Rozet ekran içindir, guard ise karar: Codex %99 diye Claude işi durmaz, ama rozet
+        # yeşil de kalmaz. Telefon ve waybar'la aynı kural: Claude + Codex, bayat bar sayılmaz.
+        taze = [b['pct'] for card in wire.get('providers') or [] if card.get('id') in ('claude', 'codex')
+                for b in ((card.get('limits') or {}).get('session'), (card.get('limits') or {}).get('weekly'))
+                if b and finite_number(b.get('pct')) is not None and not b.get('stale')]
+        pct = max(taze) if taze else None
+        th = thresholds_of(wire)
+        level = level_for(pct, th.get('warn'), th.get('crit'))
     return {
         'level': level,
-        'pct': verdict['pct'],
-        'text': f'◐ {fmt_pct(verdict["pct"])}',
+        'pct': pct,
+        'text': f'◐ {fmt_pct(pct)}',
         'color': LEVEL_COLOR[level],
         'css': {'ok': 'ok', 'warn': 'warn', 'crit': 'crit', 'unknown': 'off'}[level],
         'tooltip': render_usage_text(wire, source).replace('\n\n', '\n'),

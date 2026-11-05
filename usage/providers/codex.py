@@ -61,6 +61,7 @@ def _tavan(ad, varsayilan):
 
 
 MAX_FILES = _tavan('CODEX_MAX_FILES', 40)
+FORECAST_MAX_AGE_SEC = 600
 MAX_LINES_PER_FILE = _tavan('CODEX_MAX_LINES', 20000)
 
 _LOCK = threading.Lock()
@@ -253,8 +254,10 @@ def _limit_bar(obs: dict, now_ms: int) -> dict:
         horizon = (window_ms / 1000) if window_ms else USAGE_SESSION_WINDOW_SEC
         stale = age_sec > horizon
 
+    # Tahmin "şu anki hız"dan yapılır. Ölçüm eskiyse Codex belki hiç kullanılmıyor, yine de
+    # "~1 dk içinde dolar" denirdi (38 dk önceki %99'la ölçüldü, 2026-11-05). Yüzde görünür kalır.
     forecast = None
-    if pct is not None and reset_at_ms and window_ms:
+    if pct is not None and reset_at_ms and window_ms and age_sec <= FORECAST_MAX_AGE_SEC:
         from ..engine import _compute_forecast          # döngüsel import'u geciktir
         forecast = _compute_forecast(pct, now_ms - (reset_at_ms - window_ms),
                                      reset_at_ms, now_ms, window_ms)
@@ -411,8 +414,7 @@ def collect(days: int = 30) -> dict:
                         key=lambda x: x['usd'], reverse=True)
 
     if truncated_reason == 'files':
-        trunc_note = (f' ⚠️ Yalnız en yeni {MAX_FILES} oturum tarandı — gösterilen toplam '
-                      f'EKSİK, gerçek kullanım daha yüksek.')
+        trunc_note = f' ⚠️ Toplamda en yeni {MAX_FILES} oturum var, daha eskileri sayılmadı.'
     elif truncated_reason == 'lines':
         trunc_note = (f' ⚠️ En az bir oturum günlüğü {MAX_LINES_PER_FILE} satırda kesildi — '
                       f'gösterilen toplam EKSİK.')
@@ -437,9 +439,8 @@ def collect(days: int = 30) -> dict:
             warnings.append('Bir limit penceresi son ölçümden sonra sıfırlandı — o bar '
                             '"bilinmiyor", sıfır değil.')
     if truncated_reason == 'files':
-        warnings.append(f'Yalnız en yeni {MAX_FILES} oturum tarandı — token/$ toplamı EKSİK, '
-                        f'gerçek kullanım daha yüksek. (Limit yüzdesi etkilenmez: en yeni '
-                        f'oturumlar taranıyor.)')
+        warnings.append(f'Toplamda en yeni {MAX_FILES} oturum var, daha eskileri sayılmadı. '
+                        f'Limit yüzdesi etkilenmez.')
     elif truncated_reason == 'lines':
         warnings.append(f'En az bir oturum günlüğü {MAX_LINES_PER_FILE} satırda kesildi — '
                         f'token/$ toplamı EKSİK.')

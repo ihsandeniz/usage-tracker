@@ -94,7 +94,7 @@ const I18N = {
       + 'ortam değişkeninin adını ve dolu/boş durumunu. Anahtar eklemek için: ./setup.sh --ui → “keys” adımı.',
     keySet: 'dolu', keyUnset: 'boş', rateAt: 'kur', enteredOn: 'girildi',
     win5h: '5 saatlik pencere', winWeek: 'Haftalık', winWeekModel: 'Haftalık model',
-    forecastEta: 'bu hızla ~{t} içinde dolar', uDay: 'g', uHour: 's', uMin: 'dk',
+    forecastEta: 'bu hızla ~{t} içinde dolar', uDay: 'g', uHour: 'sa', uMin: 'dk',
     winReset: 'pencere sıfırlandı —', measured: 'ölçüm', ago: 'önce',
     limitFloor: 'sağlayıcının kendi bildirimi — anlık sayaç değil, alt sınır',
     ctxTitle: 'Bağlam Penceresi', ctxSessions: 'oturum', ctxNone: 'açık Claude Code oturumu yok',
@@ -568,13 +568,18 @@ function providerBody(c) {
   return '';
 }
 
+// 'partial' = sayı var ama eksik; "aktif" sekmesi de onu gösterir (filterProviders).
+function aktifSayisi(list) {
+  return list.filter(c => c.status === 'ok' || c.status === 'partial').length;
+}
+
 function renderProviders(list) {
   // Global state güncelle
   currentProviders = list;
 
   // Bayrak güncelle
   const flag = $('prov-flag');
-  const okCount = list.filter(c => c.status === 'ok').length;
+  const okCount = aktifSayisi(list);
   flag.textContent = list.length ? `${okCount}/${list.length} aktif` : 'sağlayıcı yok';
   flag.className = 'pill' + (okCount ? ' good' : '');
 

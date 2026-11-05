@@ -135,9 +135,9 @@ def _dur(sec):
         return ''
     d, h, m = s // 86400, (s % 86400) // 3600, (s % 3600) // 60
     if d > 0:
-        return '%dg%ds' % (d, h)
+        return '%dg%dsa' % (d, h)
     if h > 0:
-        return '%ds%ddk' % (h, m)
+        return '%dsa%ddk' % (h, m)
     return '%ddk' % m
 
 
@@ -160,7 +160,15 @@ def _summarize(data):
     sp = sess.get('pct')
     wp = week.get('pct')
     hi = max([v for v in (sp, wp) if v is not None] or [0])
-    cls = 'crit' if hi >= th['crit'] else 'warn' if hi >= th['warn'] else 'ok'
+    # Renk telefon rozeti ve waybar'la aynı kural: Claude + Codex, bayat bar sayılmaz.
+    # Başlık yazısı Claude'unkini söylemeye devam eder.
+    taze = [b['pct'] for c in ('claude', 'codex') for b in
+            ((provs.get(c) or {}).get('limits') or {}).values()
+            if isinstance(b, dict) and b is not limits.get('weeklyModel')
+            and b.get('pct') is not None and not b.get('stale')]
+    tepe = max(taze) if taze else None
+    cls = ('off' if tepe is None else 'crit' if tepe >= th['crit']
+           else 'warn' if tepe >= th['warn'] else 'ok')
 
     lines = ['<b>Claude</b>',
              '  %s oturum %s%s' % (_cbar(sp, th), _cpct(sp, th), _rst(sess.get('resetInSec'))),

@@ -114,13 +114,13 @@ out="$(echo "$json" | jq -c --arg pid "$PROVIDER" '
   def cpct(p; $th):
     if (p // null) == null then "<span color=\"#8fb6d6\">—</span>"
     else "<span color=\"" + col(p; $th) + "\">" + ((clamp(p) | roundHalfUp)|tostring) + "%</span>" end;
-  # saniye → kısa süre (3g12s / 2s30dk / 45dk)
+  # saniye → kısa süre (3g12sa / 2sa30dk / 45dk)
   def dur(sec):
     ((sec // 0) | floor) as $s
     | if $s <= 0 then "" else
       ($s / 86400 | floor) as $d | (($s % 86400) / 3600 | floor) as $h | (($s % 3600) / 60 | floor) as $m
-      | (if $d > 0 then ($d|tostring)+"g"+($h|tostring)+"s"
-         elif $h > 0 then ($h|tostring)+"s"+($m|tostring)+"dk"
+      | (if $d > 0 then ($d|tostring)+"g"+($h|tostring)+"sa"
+         elif $h > 0 then ($h|tostring)+"sa"+($m|tostring)+"dk"
          else ($m|tostring)+"dk" end)
     end;
   def rst(sec): (dur(sec)) as $t | (if $t == "" then "" else "  <span color=\"#8fb6d6\">↺" + $t + "</span>" end);

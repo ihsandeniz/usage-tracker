@@ -287,16 +287,20 @@ def _compute_forecast(pct, elapsed_ms, reset_at_ms, now_ms, window_ms):
     if eta_sec < 0:
         eta_sec = 0
 
-    hours = eta_sec // 3600
+    days = eta_sec // 86400
+    hours = (eta_sec % 86400) // 3600
     minutes = (eta_sec % 3600) // 60
     seconds = eta_sec % 60
 
+    # "s" saat için belirsizdi: "69s 16dk" saniye ya da gün gibi okunuyordu.
     parts = []
+    if days > 0:
+        parts.append(f'{days}g')
     if hours > 0:
-        parts.append(f'{hours}s')
-    if minutes > 0 or hours == 0:
+        parts.append(f'{hours}sa')
+    if days == 0 and (minutes > 0 or hours == 0):
         parts.append(f'{minutes}dk')
-    if seconds > 0 and hours == 0 and minutes < 5:
+    if seconds > 0 and days == 0 and hours == 0 and minutes < 5:
         parts.append(f'{seconds}sn')
 
     eta_text = ' '.join(parts) if parts else '≈ şimdi'
