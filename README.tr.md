@@ -3,7 +3,7 @@
 Tüm AI kullanımını, **limitini ve gerçek $ harcamasını tek yerde** gösteren, bağımlılıksız bir Linux aracı — [Pane](https://github.com/ItsJazii/pane) (yalnızca Windows) muadili.
 
 - **Web paneli** `http://127.0.0.1:8770` — harcama kartları, 30 günlük grafik, model tablosu, canlı limit barları.
-- **waybar rozeti** — bar'ında `◐ 64%`, duvara ne kadar yaklaştığına göre renklenir.
+- **waybar rozeti** — bar'ında `◐ S13% W18%`, duvara ne kadar yaklaştığına göre renklenir.
 - **floating widget** — panelin taşınabilir, boyutlandırılabilir, her-zaman-üstte pencere hali.
 
 **stdlib Python + Vanilla JS** ile yazıldı. `pip install` yok, Node yok, Rust yok. Yalnızca loopback.
@@ -203,9 +203,11 @@ Güven önemli — her sayı kaynağıyla etiketli, sessizce hiçbir şey uyduru
 
 - **Token sayıları: %100 gerçek** — transcript'ten okunur, hesap değil.
 - **Fiyat: gerçek** — Opus/Sonnet/Haiku [models.dev](https://models.dev) kataloğundan (`source: catalog`); katalogda olmayan modeller resmi üretici fiyatından (`source: official`). Doğrulanmamış her şey `source: estimate` işaretlenir.
-- **Limit: gerçek, kalibrasyonsuz** — Claude Code'un `/usage` komutuyla aynı uçtan gelir.
+- **Limitler: gerçek, kalibrasyonsuz** — kuruluysa Claude Code'un kendi durum satırından (ek istek yok), değilse `/usage`'ın kullandığı uçtan okunur.
 - **Abonelikteysen (Max, ChatGPT Plus…),** $ rakamı **API-eşdeğeri maliyettir** (bu kullanım pay-as-you-go olsa ne tutardı) = abonelikten çıkardığın değer. Gerçek faturan sabit ücrettir, bu rakam değil.
-- **Ayrıştırılamaz:** Opus fast-mode ve 1M-context premium fiyatı transcript'in model alanında görünmez → standart fiyattan hesaplanır (gerçek biraz daha yüksek olabilir).
+- **1 saatlik önbellek yazımı ayrı fiyatlanır:** taban girdinin 2 katı, 5 dakikalık 1,25 katı. Çıktı jetonu yanıtın son satırından okunur. Haiku 5.5'in 100.000 üstü fiyatı istek başına uygulanır.
+- **Codex jetonlarında çözülmemiş küçük fark var:** yeni günlüklerdeki `token_usage_record` satırları okunmuyor; okunan `token_count` olaylarıyla bir ölçümde girdide %1,3, çıktıda %3,3 fark çıktı. Hangisinin tam doğru olduğu ölçülemedi.
+- **Ayrı fiyatlanmaz:** Opus fast mode (günlükte artık `usage.speed` var, prim uygulanmıyor) ve transcript'in model alanında görünmeyen 1M-context primi → standart fiyattan hesaplanır (gerçek biraz daha yüksek olabilir).
 
 ## Limitim nereye gitti? (Limit Kara Kutusu)
 
@@ -265,7 +267,7 @@ Hiçbiri diğerine bağlı değil.
 
 ### Seçenek A — waybar rozeti
 
-Bar'ında kompakt `◐ %` modülü; manşet = en yüksek Claude limit %'si, tooltip her sağlayıcıyı
+Bar'ında kompakt `◐ S13% W18%` modülü: yazı Claude'un oturum ve haftalık %'si, renk Claude ve Codex'te en yüksek taze % (telefon rozetiyle aynı kural), tooltip her sağlayıcıyı
 listeler, tıklayınca web paneli açılır. `install.sh` hazır `custom/usage` snippet'i + `style.css`
 renklerini basar. Bağımsız — tarayıcı gerekmez.
 

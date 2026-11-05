@@ -210,6 +210,12 @@ still true, and an `ok` one is true unless the provider was used outside this lo
 is published so surfaces can show how old it is; `stale` is reserved for `expired`, where
 the number genuinely no longer describes the current window.
 
+### `warningCodes` (added 2026-11-05, Codex)
+
+`[{ "code": "filesCap"|"linesCap"|"windowReset", "n": number }]`, parallel to `warnings`. The server's
+text is Turkish; a surface in another language writes its own sentence from the code. `n` is the cap,
+0 when it has none. Unknown code → show `warnings` as they are.
+
 ### `warnings` (added 2026-08-29)
 
 Short, one-clause strings meant to be rendered as separate lines. `note` stays what it was —

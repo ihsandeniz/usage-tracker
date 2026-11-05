@@ -10,7 +10,7 @@ const I18N = {
     spend: 'Real Spending', limits: 'Rate Limits', calibration: 'Calibration (backup)', view: 'View',
     today: 'Today', yday: 'Yesterday', total: 'Last 30 days', month: 'This month',
     daily: 'Daily spending (30d)', max: 'max', dailyLimit: 'Daily limit',
-    overview: 'Overview', provider: 'provider', modelCount: 'Installed model', used: 'Used',
+    overview: 'Overview', provider: 'provider', providerPl: 'providers', modelCount: 'Installed model', used: 'Used',
     credit: 'Remaining credit', session: 'session', unreachable: 'unreachable',
     flagStale: '⚠ stale · last live read', flagAgo: 'ago', flagFailed: 'failed', flagLive: '🟢 live · real',
     flagLimited: '⏳ live limit (429) → fell back to estimate', flagEstimate: '≈ estimated',
@@ -83,7 +83,7 @@ const I18N = {
     today: 'Bugün', yday: 'Dün', total: 'Son 30 gün', month: 'Bu ay',
     daily: 'Günlük harcama (30g)', max: 'tavan', dailyLimit: 'Günlük limit',
     overview: 'Tek Bakış',
-    provider: 'kaynak', modelCount: 'Kurulu model', used: 'Kullanılan',
+    provider: 'kaynak', providerPl: 'kaynak', modelCount: 'Kurulu model', used: 'Kullanılan',
     credit: 'Kalan kredi', session: 'oturum', unreachable: 'erişilemedi',
     flagStale: '⚠ bayat · son canlı okuma', flagAgo: 'önce', flagFailed: 'başarısız', flagLive: '🟢 canlı · gerçek',
     flagLimited: '⏳ canlı limit (429) → tahmine düşüldü', flagEstimate: '≈ tahmini',
@@ -412,7 +412,7 @@ function renderGlanceStrip(usage, providers) {
     items.push(gchip(c.name, dot, val, vcls, pct, '#prov-' + c.id));
   }
   $('gstrip').innerHTML = items.join('') || `<span class="muted">${t('noData')}</span>`;
-  $('gstrip-count').textContent = items.length + ' ' + t('provider');
+  $('gstrip-count').textContent = items.length + ' ' + t(items.length === 1 ? 'provider' : 'providerPl');
   document.querySelectorAll('#gstrip .gchip').forEach(b => b.addEventListener('click', () => {
     const target = document.querySelector(b.getAttribute('data-target'));
     if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });

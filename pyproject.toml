@@ -1,4 +1,5 @@
-# DRAFT — not published. Nothing here has been uploaded to PyPI.
+# Not published to PyPI, by decision: the name `usage-tracker` belongs to someone else there.
+# Releases are the GitHub binaries and AUR. This file builds the wheel the install tests use.
 #
 # `python3 -m build` produces an sdist and a wheel from this file. The panel's read-only
 # resources (`web/`, `data/`, `price_overrides.json`) stay at the repo root, where the source

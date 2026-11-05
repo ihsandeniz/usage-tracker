@@ -14,7 +14,7 @@
 # (see pyproject.toml).
 
 pkgname=usage-tracker
-pkgver=0.6.0
+pkgver=0.6.1
 pkgrel=1
 pkgdesc='Claude / AI usage, limits and real spend on your desktop — panel, waybar badge, CLI (stdlib only)'
 arch=('any')

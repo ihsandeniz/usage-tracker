@@ -26,7 +26,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usage import engine, settings, viewconfig   # noqa: E402
 
-VERSION = '0.6.0'                                  # tek kaynak: Server başlığı + panel rozeti
+VERSION = '0.6.1'                                  # tek kaynak: Server başlığı + panel rozeti
 HOST = '127.0.0.1'                                 # loopback-only (güvenlik — değiştirme)
 PORT = int(os.environ.get('USAGE_PORT', '8770'))   # port çakışmasında USAGE_PORT ile değiştir
 # Port doluyken çıkış kodu. 69 = sysexits.h EX_UNAVAILABLE ("hizmet erişilebilir değil").
@@ -339,9 +339,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', MIME.get(fp.suffix.lower(), 'application/octet-stream'))
             self.send_header('Content-Length', str(len(body)))
+            self.send_header('X-Content-Type-Options', 'nosniff')
             # cache header — HTML: no-cache, JS/CSS: 1 saat (public caching saf loopback)
             if fp.suffix.lower() == '.html':
                 self.send_header('Cache-Control', 'no-cache')
+                # Panel yalnız kendi dosyalarını yükler; satır içi stil (style="…") kullanıyor.
+                self.send_header('Content-Security-Policy',
+                                 "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                                 "img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+                self.send_header('X-Frame-Options', 'DENY')
             elif fp.suffix.lower() in ('.js', '.css'):
                 self.send_header('Cache-Control', 'public, max-age=3600')
             self.end_headers()

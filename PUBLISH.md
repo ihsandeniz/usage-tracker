@@ -16,7 +16,7 @@ The repo is already public: **github.com/ihsandeniz/usage-tracker**.
 ./start.sh &            # server on :8770
 sleep 2
 curl -s 127.0.0.1:8770/v1/usage | jq .schema     # → "usage/v1"
-./surface/waybar-usage.sh | jq .text             # → "◐ NN%"  (NOT empty)
+./surface/waybar-usage.sh | jq .text             # → "◐ S13% W18%"  (NOT empty)
 kill %1
 python3 -m usage.catalog --build-bundle          # refresh the bundled prices, then commit data/
 python3 -m usage.catalog --check-bundle          # the tag's CI fails on this too

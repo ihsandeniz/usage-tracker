@@ -3,7 +3,7 @@
 A tiny, dependency-free tool that shows **all your AI usage, rate limits, and real $ spend** in one place on Linux — a native alternative to [Pane](https://github.com/ItsJazii/pane) (Windows-only).
 
 - **Web panel** at `http://127.0.0.1:8770` — spend cards, 30-day chart, per-model table, live limit bars.
-- **waybar badge** — `◐ 64%` in your bar, colored by how close you are to the wall.
+- **waybar badge** — `◐ S13% W18%` in your bar, colored by how close you are to the wall.
 - **floating widget** — the panel as a movable, resizable, always-on-top window.
 - **guided setup** — `./setup.sh`, or `./setup.sh --ui` for the same steps in a browser window.
   Every step shows a real diff of what it is about to write, and can be undone from the same page.
@@ -252,12 +252,14 @@ Trust matters, so every number is labelled by source — nothing is silently mad
 
 - **Token counts: 100% real** — read from transcripts, not estimated.
 - **Prices: real** — Opus/Sonnet/Haiku from the [models.dev](https://models.dev) catalog (`source: catalog`); models not yet in the catalog use official vendor pricing (`source: official`). Anything unverified is flagged `source: estimate`.
+- **1-hour cache writes are priced as such** — 2× base input, against 1.25× for 5-minute writes. Output tokens come from a reply's last log line, where they are complete. Haiku 5.5's higher price above 100,000 prompt tokens is applied per request.
+- **Codex tokens carry a small unresolved gap.** Newer Codex logs add `token_usage_record` lines, which are not read; the `token_count` events that are read differed from them by 1.3% on input and 3.3% on output in one measurement. Which is exact could not be measured.
 - **Prices work offline, out of the box** — a models.dev snapshot ships inside the repo, so a fresh clone prices your usage on the first run with no network and no other tool installed. Refresh it whenever you like: `python3 -m usage.catalog --update`. Run `python3 -m usage.catalog` to see which source is in use and how old it is.
 - **A model nobody has priced is not counted as $0.** Its tokens are reported separately in `unknownPriceModels` and left out of the totals, so a total that is incomplete says so instead of quietly looking finished.
 - **A scan that stopped early says so** — the local-log adapters cap how much they read; when they hit that cap the card reads `partial` and explains itself, rather than presenting a truncated number as your usage.
-- **Limits: real, no calibration** — pulled from the same endpoint Claude Code's `/usage` uses.
+- **Limits: real, no calibration** — read from Claude Code's own status line when it is installed (no extra request), otherwise from the same endpoint Claude Code's `/usage` uses.
 - **If you're on a subscription (Max, ChatGPT Plus…),** the $ figure is the **API-equivalent cost** (what this usage would cost pay-as-you-go) = the value you're getting from the subscription. Your actual bill is the flat fee, not this number.
-- **Can't be separated:** Opus fast-mode and 1M-context premium pricing don't appear in the transcript's model field, so they're computed at standard rates (real cost may be slightly higher).
+- **Not priced separately:** Opus fast mode (logs now carry `usage.speed`, the premium is not applied) and 1M-context premium pricing, which doesn't appear in the transcript's model field, are computed at standard rates (real cost may be slightly higher).
 
 ## Where did my limit go? (Limit Black Box)
 
@@ -292,7 +294,7 @@ work — is flagged **2× faster**.
 
 ```
 $ usage-tracker kanit
-usage-tracker 0.6.0 · limit evidence · window 5h
+usage-tracker 0.6.1 · limit evidence · window 5h
 Claude: 14 measured stretches (2026-09-22T19:36Z → 2026-10-08T22:02Z), median 497868 units per 1%, CV 17%, flagged 2x-faster: 0
 
 start (UTC)        min  points  units/1%   x usual  flag  models  client
@@ -330,7 +332,8 @@ widget, both, or neither. Neither depends on the other.
 
 ### Option A — waybar badge
 
-A compact `◐ NN%` module in your bar; the headline is the highest Claude limit %, the tooltip
+A compact `◐ S13% W18%` module in your bar: the text is Claude's session and weekly %, the colour
+follows the highest fresh % across Claude and Codex (the same rule as the phone badge), the tooltip
 lists every provider, and clicking it opens the web panel. `install.sh` prints the ready-to-paste
 `custom/usage` snippet + `style.css` colors. Standalone — no browser required.
 
