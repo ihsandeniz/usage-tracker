@@ -276,8 +276,13 @@ _CODEX_FALLBACKS = ('gpt-5.2-codex', 'gpt-5.1-codex', 'gpt-5-codex', 'gpt-5.2', 
 def codex_cost_usd(inp: int, cached_in: int, out: int, model: str):
     """Codex turn'ünün API-eşdeğeri $ maliyeti. OpenAI faturalama:
        cached_input, input_tokens'ın alt kümesidir → cache'siz = input - cached.
-       output_tokens reasoning'i zaten içerir (tekrar sayma)."""
+       output_tokens reasoning'i zaten içerir (tekrar sayma).
+       Uzun bağlam katmanı istek başına: girdi eşiği aşarsa isteğin tamamı üst fiyattan."""
     price, source = resolve_provider_price(model, 'openai', _CODEX_FALLBACKS)
+    for tier in price.get('tiers', ()):
+        if (inp or 0) > tier['over']:
+            price = tier
+            break
     uncached = max(0, (inp or 0) - (cached_in or 0))
     usd = (
         uncached * price['input'] +
