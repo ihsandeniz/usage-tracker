@@ -4,6 +4,7 @@ Codex adaptörü — GERÇEK limit yüzdesi + token hacmi + API-eşdeğeri $ tah
 
 Kaynak (SALT-OKUNUR):
   ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+  ~/.codex/archived_sessions/rollout-*.jsonl   (arşivlenen oturum: aynı biçim, harcaması gerçek)
   event_msg → payload.type == 'token_count':
     · info.last_token_usage (turn deltası):
         input_tokens · cached_input_tokens · output_tokens · reasoning_output_tokens · total_tokens
@@ -15,6 +16,10 @@ Kaynak (SALT-OKUNUR):
 
   auth_mode ('chatgpt' = abonelik → $ = API-eşdeğeri maliyet, gerçek fatura değil).
 Dosya-mtime cache'li. Rollout dizini yoksa → None (kart açılmaz).
+
+Tekil sayım: aynı istek birden çok kez yazılabilir. Dosya içinde `total_token_usage` değişmeyen
+olay tekrardır. Fork'lanan alt ajan üst oturumun olaylarını YENİ zaman damgasıyla baştan yazar,
+aynı oturum iki dizinde de bulunabilir; ikisini `_olay_anahtari` yakalar, en eski kopya kalır.
 
 ⚠️ Limit yüzdesi bir TAHMİN DEĞİL — Codex'in kendi yanıtından okunuyor, o yüzden Claude'un
 kalibrasyona muhtaç barlarının aksine `calibSuspect` diye bir sorunu yok. Buna karşılık
@@ -39,6 +44,7 @@ PROVIDER_ID = 'codex'
 PROVIDER_NAME = 'Codex'
 CODEX_DIR = Path.home() / '.codex'
 SESSIONS_DIR = CODEX_DIR / 'sessions'
+ARCHIVED_DIRNAME = 'archived_sessions'
 AUTH_PATH = CODEX_DIR / 'auth.json'
 
 # Codex'in en kısa penceresi (primary = 300 dk). `resets_at` bildirilmediğinde tazeliği
@@ -60,7 +66,8 @@ def _tavan(ad, varsayilan):
     return n if n > 0 else varsayilan
 
 
-MAX_FILES = _tavan('CODEX_MAX_FILES', 40)
+# 40'tı: arşiv + etkin 30 günde 66 dosya ölçüldü (2026-11-06), 40 yeni veriyi keserdi.
+MAX_FILES = _tavan('CODEX_MAX_FILES', 500)
 FORECAST_MAX_AGE_SEC = 600
 MAX_LINES_PER_FILE = _tavan('CODEX_MAX_LINES', 20000)
 
@@ -111,7 +118,34 @@ def _merge_rate(into: dict, new: dict):
     return into
 
 
-# event: (ms, model, inp, cached_in, out)
+def _olay_anahtari(fp: Path, line_idx: int, inp, cached, out, total):
+    """İki dosyadaki aynı isteği tanıyan anahtar. Zaman damgası BİLEREK yok: fork kopyası yeni
+    damga taşır. Birikimli toplam yoksa (eski günlük) yalnız aynı adlı dosyanın aynı satırı aynıdır."""
+    if total is None:
+        return (fp.name, line_idx)
+    return (inp, cached, out, total)
+
+
+def _tekil(events):
+    """Aynı anahtarlı olaylardan en eskisini tut; fork kopyası asıl olaydan sonra gelir."""
+    seen = set()
+    out = []
+    for e in sorted(events, key=lambda e: e[0]):
+        if e[5] not in seen:
+            seen.add(e[5])
+            out.append(e)
+    return out
+
+
+def _rollout_dosyalari():
+    """Etkin + arşiv rollout yolları. Arşiv `SESSIONS_DIR`'in kardeşidir: testler ve taşınmış
+    kurulum tek değişkenle yönlenir, gerçek `~/.codex` karışmaz."""
+    for kok in (SESSIONS_DIR, SESSIONS_DIR.parent / ARCHIVED_DIRNAME):
+        if kok.exists():
+            yield from kok.rglob('rollout-*.jsonl')
+
+
+# event: (ms, model, inp, cached_in, out, tekil_anahtar)
 def _parse_file(fp: Path):
     """(events, rate_obs, hit_line_limit) döndür. hit_line_limit=True ise dosyanın sonu
        OKUNMADI — çağıran bunu kullanıcıya söylemek zorunda (sessiz kesme yasak)."""
@@ -119,6 +153,7 @@ def _parse_file(fp: Path):
     rate_obs = {}
     cur_model = ''
     hit_limit = False
+    prev_total = None
     try:
         with fp.open(encoding='utf-8') as fh:
             for line_idx, line in enumerate(fh):
@@ -154,10 +189,15 @@ def _parse_file(fp: Path):
                 last = info.get('last_token_usage') or {}
                 if not last:
                     continue
-                events.append((ms, cur_model,
-                               int(last.get('input_tokens') or 0),
-                               int(last.get('cached_input_tokens') or 0),
-                               int(last.get('output_tokens') or 0)))
+                total = (info.get('total_token_usage') or {}).get('total_tokens')
+                if total is not None and total == prev_total:
+                    continue                   # birikimli toplam değişmedi: yeni harcama yok
+                prev_total = total
+                inp = int(last.get('input_tokens') or 0)
+                cached = int(last.get('cached_input_tokens') or 0)
+                out = int(last.get('output_tokens') or 0)
+                events.append((ms, cur_model, inp, cached, out,
+                               _olay_anahtari(fp, line_idx, inp, cached, out, total)))
     except OSError:
         return [], {}, False
     return events, rate_obs, hit_limit
@@ -182,7 +222,7 @@ def _scan(since_ms: int):
     cutoff = since_ms / 1000 - 86400
 
     candidates = []
-    for fp in SESSIONS_DIR.rglob('rollout-*.jsonl'):
+    for fp in _rollout_dosyalari():
         try:
             st = fp.stat()
         except OSError:
@@ -210,11 +250,14 @@ def _scan(since_ms: int):
                 _FILE_CACHE[key] = (mtime, size, evs, file_rate, hit_lines)
         if hit_lines and truncated_reason is None:
             truncated_reason = 'lines'
-        events.extend(e for e in evs if e[0] >= since_ms)
+        events.extend(evs)
         # Limit gözlemi `since_ms` ile SÜZÜLMEZ: 30 günlük harcama penceresi bir raporlama
         # aralığı, limit penceresi ise 5 saat/1 hafta. En yeni gözlem hangi dosyadaysa odur.
         _merge_rate(rate_obs, file_rate)
-    return events, len(candidates), truncated_reason, rate_obs
+    # Tekilleştirme pencere süzgecinden ÖNCE: asıl olay pencere dışındaysa kopyası da sayılmaz.
+    events = [e[:5] for e in _tekil(events) if e[0] >= since_ms]
+    sessions = len({c[2].name for c in candidates})
+    return events, sessions, truncated_reason, rate_obs
 
 
 def _limit_bar(obs: dict, now_ms: int) -> dict:
@@ -311,14 +354,16 @@ def limit_gecmisi(pencere: str = 'five_hour'):
         return None
     dk = _PENCERE_DK[pencere]
     gozlemler, olaylar = [], []
-    for fp in sorted(SESSIONS_DIR.rglob('rollout-*.jsonl')):
+    seen = set()
+    # Ada göre sıra = zamana göre: fork kopyası asıl olaydan sonra okunup düşer.
+    for fp in sorted(_rollout_dosyalari(), key=lambda p: p.name):
         model = ''
         try:
             fh = fp.open(encoding='utf-8', errors='replace')
         except OSError:
             continue
         with fh:
-            for line in fh:
+            for line_idx, line in enumerate(fh):
                 if '"model"' in line:
                     m = _MODEL_RE.search(line)
                     if m:
@@ -335,6 +380,17 @@ def limit_gecmisi(pencere: str = 'five_hour'):
                 ms = _iso_to_ms(o.get('timestamp') or '')
                 if ms is None:
                     continue
+                info = payload.get('info') or {}
+                last = info.get('last_token_usage') or {}
+                inp = int(last.get('input_tokens') or 0)
+                cached = int(last.get('cached_input_tokens') or 0)
+                out = int(last.get('output_tokens') or 0)
+                if last:
+                    anahtar = _olay_anahtari(fp, line_idx, inp, cached, out,
+                                             (info.get('total_token_usage') or {}).get('total_tokens'))
+                    if anahtar in seen:
+                        continue               # kopya olayın yüzdesi de eski, yeni damgayla yanıltır
+                    seen.add(anahtar)
                 rl = payload.get('rate_limits')
                 if isinstance(rl, dict) and rl.get('limit_id') in ('codex', None):
                     for slot in ('primary', 'secondary'):
@@ -347,11 +403,8 @@ def limit_gecmisi(pencere: str = 'five_hour'):
                                               'r': int(ra) if isinstance(ra, (int, float))
                                               and not isinstance(ra, bool) else None,
                                               'k': 'codex'})
-                last = (payload.get('info') or {}).get('last_token_usage') or {}
                 if last:
-                    inp = int(last.get('input_tokens') or 0)
-                    cached = int(last.get('cached_input_tokens') or 0)
-                    olaylar.append((ms, model, max(0, inp - cached), int(last.get('output_tokens') or 0)))
+                    olaylar.append((ms, model, max(0, inp - cached), out))
     gozlemler.sort(key=lambda g: g['t'])
     olaylar.sort()
     return gozlemler, olaylar

@@ -107,7 +107,7 @@ the `verify` step prints the ready-to-paste command when waybar is absent.
 
 Any card that publishes the Claude card's `limits` block drives a badge, a `guard` exit
 code and a tooltip row. Codex does, reading its own reported 5-hour and weekly quota out of
-`~/.codex/sessions/**/rollout-*.jsonl`:
+`~/.codex/sessions/**/rollout-*.jsonl` (token totals also count `~/.codex/archived_sessions/`):
 
 ```bash
 usage-tracker usage --provider codex          # Codex's own bars

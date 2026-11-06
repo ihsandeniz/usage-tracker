@@ -181,6 +181,8 @@ optionally `weeklyModel`, each a bar with the fields documented under "The Claud
 Codex is the first to do so; it reads `rate_limits` straight out of
 `~/.codex/sessions/**/rollout-*.jsonl`, where the Codex server reports `primary`
 (a 300-minute window) and `secondary` (10 080 minutes) as `used_percent`.
+Token and $ totals also read `~/.codex/archived_sessions/`, each request counted once:
+a forked sub-agent rewrites its parent's events and a session can sit in both directories.
 
 The shape is the contract, not the provider name. `usage/cli.py:scopes_of`, the panel's
 `provLimits`, the waybar feeder's `limbars` and the tray's `_limit_lines` all branch on

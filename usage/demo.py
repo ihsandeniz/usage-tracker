@@ -321,8 +321,8 @@ def collect(days: int = 30) -> list:
             'usdSource': 'catalog',
             'warnings': ['Bir limit penceresi son ölçümden sonra sıfırlandı — o bar '
                          '"bilinmiyor", sıfır değil.',
-                         'Toplamda en yeni 40 oturum var, daha eskileri sayılmadı. Limit yüzdesi etkilenmez.'],
-            'warningCodes': [{'code': 'windowReset', 'n': 0}, {'code': 'filesCap', 'n': 40}],
+                         'Toplamda en yeni 500 oturum var, daha eskileri sayılmadı. Limit yüzdesi etkilenmez.'],
+            'warningCodes': [{'code': 'windowReset', 'n': 0}, {'code': 'filesCap', 'n': 500}],
             'note': 'ChatGPT aboneliği — $ API-eşdeğeri maliyettir (gerçek fatura sabit abonelik).',
             'updated': datetime.fromtimestamp(now_ms / 1000).strftime('%H:%M:%S'),
         },
