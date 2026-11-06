@@ -25,7 +25,7 @@ def _node(fonksiyonlar, ifade, lang='en'):
     i18n = re.search(r'^const I18N = \{.*?^\};', APP, re.M | re.S).group(0).replace('const I18N', 'var I18N')
     js = i18n + f"\nvar LANG='{lang}';\nvar t=(k)=>I18N[LANG]?.[k]??I18N.en?.[k]??k;\n" + '\n'.join(gov) \
         + f'\nconsole.log(JSON.stringify({ifade}));'
-    out = subprocess.run(['node', '-e', js], capture_output=True, text=True, timeout=30)
+    out = subprocess.run(['node', '-e', js], capture_output=True, text=True, encoding='utf-8', timeout=30)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 

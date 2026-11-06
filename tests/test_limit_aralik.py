@@ -135,6 +135,8 @@ class AltAjanYoluTest(_Projeler):
 class TekillestirmeTest(_Projeler):
     def say(self, satirlar):
         self.yaz('-p/x.jsonl', satirlar)
+        # Aynı boyutta yeniden yazım; Windows saatinde mtime da aynı düşebilir, önbellek eskiyi verir.
+        engine._CACHE.clear()
         return len(engine._scan_turns(0))
 
     def test_ayni_mesaj_ayni_istek_bir(self):
